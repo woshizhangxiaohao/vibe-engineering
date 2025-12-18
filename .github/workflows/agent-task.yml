@@ -34,31 +34,21 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -e
-          # Try available CLI entrypoints in order to avoid "command not found"
+      
+          cat > CODEX_PROMPT.txt <<'PROMPT'
+            Read ISSUE.md as a contract.
+            Follow AGENT_PROTOCOL.md.
+            Generate execution plan.
+            Execute task.
+            Run tests.
+            PROMPT
+      
           if command -v codex >/dev/null 2>&1; then
-            codex run <<'EOF'
-            Read ISSUE.md as a contract.
-            Follow AGENT_PROTOCOL.md.
-            Generate execution plan.
-            Execute task.
-            Run tests.
-            EOF
+            codex run CODEX_PROMPT.txt
           elif command -v codex-cli >/dev/null 2>&1; then
-            codex-cli run <<'EOF'
-            Read ISSUE.md as a contract.
-            Follow AGENT_PROTOCOL.md.
-            Generate execution plan.
-            Execute task.
-            Run tests.
-            EOF
+            codex-cli run CODEX_PROMPT.txt
           else
-            python -m codex run <<'EOF'
-            Read ISSUE.md as a contract.
-            Follow AGENT_PROTOCOL.md.
-            Generate execution plan.
-            Execute task.
-            Run tests.
-            EOF
+            python -m codex run CODEX_PROMPT.txt
           fi
 
       - name: Create Pull Request
