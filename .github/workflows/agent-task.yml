@@ -56,14 +56,14 @@ jobs:
         uses: openai/codex-action@main
         id: codex
         with:
-          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt: >-
             Read ISSUE.md as a contract.
             Follow AGENT_PROTOCOL.md.
             Generate execution plan.
             Execute task.
             Run tests.
-          codex_args: '["--config","sandbox_mode=\"workspace-write\""]'
+          sandbox: workspace-write
 
       - name: Debug git status
         run: |
