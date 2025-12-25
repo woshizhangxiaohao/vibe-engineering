@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -41,13 +42,19 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Check OpenAI API Key Set
+      - name: Check API Key Set
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "OPENAI_API_KEY secret is not set. Skipping agent run." >&2
+          if [ -z "$OPENROUTER_API_KEY" ] && [ -z "$OPENAI_API_KEY" ]; then
+            echo "ERROR: Neither OPENROUTER_API_KEY nor OPENAI_API_KEY secret is set. Skipping agent run." >&2
             exit 1
+          fi
+          if [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "OpenRouter API key is set (will use OpenRouter)"
+          elif [ -n "$OPENAI_API_KEY" ]; then
+            echo "OpenAI API key is set (will use OpenAI)"
           fi
 
       - name: Read Issue
@@ -110,26 +117,42 @@ jobs:
       - name: Run Codex
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set -e
 
-          # 调试：检查环境变量是否存在（不显示完整值）
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "ERROR: OPENAI_API_KEY is not set!"
-            exit 1
+          # 优先使用 OpenRouter（如果配置了），否则使用 OpenAI
+          if [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "Using OpenRouter API"
+            API_KEY="$OPENROUTER_API_KEY"
+            API_BASE="https://openrouter.ai/api/v1"
+            # OpenRouter 需要在 header 中设置 HTTP-Referer 和 X-Title
+            export OPENAI_API_BASE="$API_BASE"
+            export OPENROUTER_API_KEY="$OPENROUTER_API_KEY"
+          elif [ -n "$OPENAI_API_KEY" ]; then
+            echo "Using OpenAI API"
+            API_KEY="$OPENAI_API_KEY"
+            API_BASE="https://api.openai.com/v1"
           else
-            echo "OPENAI_API_KEY is set (length: ${#OPENAI_API_KEY} characters)"
-            echo "OPENAI_API_KEY prefix: ${OPENAI_API_KEY:0:10}..."
+            echo "ERROR: Neither OPENAI_API_KEY nor OPENROUTER_API_KEY is set!"
+            exit 1
           fi
 
+          # 调试：检查 API 密钥是否存在（不显示完整值）
+          echo "API_KEY is set (length: ${#API_KEY} characters)"
+          echo "API_KEY prefix: ${API_KEY:0:10}..."
+          echo "API_BASE: $API_BASE"
+
           # 显式导出环境变量，确保子进程可以访问
-          export OPENAI_API_KEY
+          export OPENAI_API_KEY="$API_KEY"
+          export OPENAI_API_BASE="$API_BASE"
 
           # 尝试创建配置文件（如果工具支持）
           # 某些工具可能需要配置文件而不是环境变量
           cat > .codexrc.json <<EOF
           {
-            "apiKey": "$OPENAI_API_KEY"
+            "apiKey": "$API_KEY",
+            "apiBase": "$API_BASE"
           }
           EOF
 
@@ -143,9 +166,11 @@ jobs:
 
           # `-` 表示从 stdin 读取 prompt
           # 使用 env 命令确保环境变量被正确传递
-          # 同时设置多个可能的环境变量名称以防工具使用不同的名称
-          env OPENAI_API_KEY="$OPENAI_API_KEY" \
-              CODEX_API_KEY="$OPENAI_API_KEY" \
+          # 设置 OpenAI API base URL（如果使用 OpenRouter）
+          env OPENAI_API_KEY="$API_KEY" \
+              OPENAI_API_BASE="$API_BASE" \
+              OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
+              CODEX_API_KEY="$API_KEY" \
               npx -y @openai/codex exec --full-auto -C . - < CODEX_PROMPT.txt
 
       - name: Prepare PR metadata
