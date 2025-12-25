@@ -13,6 +13,10 @@ This repository documents the minimal automation needed to run an issue-driven a
 - `.github/workflows/agent-task.yml`: Workflow that triggers on qualifying issues and runs the agent.
 - `AGENT_PROTOCOL.md`: Guidance for the agent on planning, execution, verification, and escalation.
 - `REVIEW_CHECKLIST.md`: Taste-focused review checklist for automated and human reviewers.
+- `DAILY_TODOLIST.md`: Cross-functional daily checklist (PM/FE/BE/Ops) with AI-teammate prompts.
+- `PROJECT_DESIGN.md`: Collaboration design (roles/rituals/artifacts) to make cross-functional work runnable.
+- `.github/ISSUE_TEMPLATE/*`: Feature/Bug/Release templates for PM/FE/BE/Ops.
+- `PULL_REQUEST_TEMPLATE.md`: PR template requiring evidence, risks, and rollback.
 
 ## Operating Guidelines
 - Treat each issue as the contract for the agent’s work; keep requirements and acceptance criteria there.
