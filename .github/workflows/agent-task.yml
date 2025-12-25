@@ -152,8 +152,9 @@ jobs:
           [model_providers.openrouter]
           name = "OpenRouter"
           base_url = "$API_BASE"
-          # OpenRouter 对 OpenAI 的 Chat Completions 兼容更稳定；避免 Responses/tool-calling 协议不一致导致卡住
-          wire_api = "chat_completions"
+          # 使用 Codex 支持的 wire_api 枚举值：chat / responses
+          # 这里选择 chat，走 OpenAI 兼容的 Chat Completions 线路
+          wire_api = "chat"
           requires_openai_auth = false
           env_key = "OPENROUTER_API_KEY"
           EOF
