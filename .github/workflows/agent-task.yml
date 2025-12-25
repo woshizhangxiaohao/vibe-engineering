@@ -32,12 +32,12 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Check OpenAI API Key Set
         env:
@@ -60,11 +60,11 @@ jobs:
           import urllib.request
           import urllib.error
           from pathlib import Path
-          
+
           event_path = os.environ.get("GITHUB_EVENT_PATH")
           if not event_path:
             raise SystemExit("GITHUB_EVENT_PATH is not set")
-          
+
           payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
 
           event_name = os.environ.get("GITHUB_EVENT_NAME") or ""
@@ -102,7 +102,7 @@ jobs:
 
           Path("ISSUE.md").write_text(body, encoding="utf-8")
           PY
- 
+
           echo "Issue content saved to ISSUE.md"
 
       - name: Run Codex
@@ -196,8 +196,13 @@ jobs:
           ISSUE_NUMBER: ${{ steps.pr_meta.outputs.issue_number }}
         with:
           script: |
+            const issueNumber = Number(process.env.ISSUE_NUMBER);
+            if (!issueNumber || issueNumber <= 0) {
+              console.log(`Skipping comment: invalid issue number (${process.env.ISSUE_NUMBER})`);
+              return;
+            }
             github.rest.issues.createComment({
-              issue_number: Number(process.env.ISSUE_NUMBER),
+              issue_number: issueNumber,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: `✅ PR created: #${process.env.PR_NUMBER}\n\nThe AI agent has completed the task. Please review the changes.`
@@ -210,8 +215,13 @@ jobs:
           ISSUE_NUMBER: ${{ steps.pr_meta.outputs.issue_number }}
         with:
           script: |
+            const issueNumber = Number(process.env.ISSUE_NUMBER);
+            if (!issueNumber || issueNumber <= 0) {
+              console.log(`Skipping comment: invalid issue number (${process.env.ISSUE_NUMBER})`);
+              return;
+            }
             github.rest.issues.createComment({
-              issue_number: Number(process.env.ISSUE_NUMBER),
+              issue_number: issueNumber,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: `❌ AI agent task failed. Please check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.`
