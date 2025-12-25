@@ -132,7 +132,7 @@ jobs:
             API_KEY="$OPENROUTER_API_KEY"
             API_BASE="https://openrouter.ai/api/v1"
             # OpenRouter 默认模型（如果未指定）
-            DEFAULT_MODEL="openai/gpt-5-chat"
+            DEFAULT_MODEL="openai/gpt-5.2"
             # 使用指定的模型或默认模型
             MODEL="${CODEX_MODEL:-$DEFAULT_MODEL}"
             
