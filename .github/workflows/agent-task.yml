@@ -25,6 +25,8 @@ jobs:
       (github.event.action == 'labeled' && github.event.label.name == 'agent-task') ||
       (github.event.action == 'opened' && startsWith(github.event.issue.title, '[Agent]'))
     runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
