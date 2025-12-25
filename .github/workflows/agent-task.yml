@@ -132,7 +132,7 @@ jobs:
             API_KEY="$OPENROUTER_API_KEY"
             API_BASE="https://openrouter.ai/api/v1"
             # OpenRouter 默认模型（如果未指定）
-            DEFAULT_MODEL="openai/gpt-4o"
+            DEFAULT_MODEL="openai/gpt-5-chat"
             # 使用指定的模型或默认模型
             MODEL="${CODEX_MODEL:-$DEFAULT_MODEL}"
             
@@ -280,6 +280,7 @@ jobs:
         id: create_pr
         uses: peter-evans/create-pull-request@v6
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           title: ${{ steps.pr_meta.outputs.title }}
           body-path: PR_BODY.md
           branch: ${{ steps.pr_meta.outputs.branch }}
@@ -288,6 +289,8 @@ jobs:
           labels: |
             ai-generated
             automated-pr
+          # 如果 PR 已存在，则更新它
+          update-branch: true
 
       - name: Comment on issue
         if: github.event_name != 'workflow_dispatch' && steps.create_pr.outputs.pull-request-number
