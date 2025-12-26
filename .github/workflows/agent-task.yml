@@ -126,8 +126,39 @@ jobs:
           CODEX_MODEL: ${{ secrets.CODEX_MODEL }}
         run: |
 
-          # 优先使用 OpenRouter（如果配置了），否则使用 OpenAI
-          if [ -n "$OPENROUTER_API_KEY" ]; then
+          # 优先使用 OpenAI 直接 API（更兼容 Codex），否则使用 OpenRouter
+          if [ -n "$OPENAI_API_KEY" ]; then
+            echo "Using OpenAI API (preferred for Codex compatibility)"
+            API_KEY="$OPENAI_API_KEY"
+            API_BASE="https://api.openai.com/v1"
+            # OpenAI 默认模型（如果未指定）
+            DEFAULT_MODEL="gpt-4o"
+            # 使用指定的模型或默认模型
+            MODEL="${CODEX_MODEL:-$DEFAULT_MODEL}"
+            
+            # 创建 Codex 配置文件目录
+            mkdir -p ~/.codex
+            
+            # 创建 config.toml 配置文件（使用 OpenAI）
+            cat > ~/.codex/config.toml <<EOF
+          model_provider = "openai"
+          model = "$MODEL"
+          model_reasoning_effort = "none"
+          reasoning_summaries = "never"
+          disable_response_storage = true
+          preferred_auth_method = "apikey"
+          # 禁用 MCP 服务器以避免连接等待
+          disable_mcp = true
+
+          [model_providers.openai]
+          name = "OpenAI"
+          base_url = "$API_BASE"
+          env_key = "OPENAI_API_KEY"
+          EOF
+            
+            # 设置环境变量
+            export OPENAI_API_KEY="$API_KEY"
+          elif [ -n "$OPENROUTER_API_KEY" ]; then
             echo "Using OpenRouter API"
             API_KEY="$OPENROUTER_API_KEY"
             API_BASE="https://openrouter.ai/api/v1"
@@ -165,36 +196,6 @@ jobs:
             export OPENROUTER_API_KEY="$API_KEY"
             export HTTP_REFERER="https://github.com/${{ github.repository }}"
             export X_TITLE="GitHub Actions Agent"
-          elif [ -n "$OPENAI_API_KEY" ]; then
-            echo "Using OpenAI API"
-            API_KEY="$OPENAI_API_KEY"
-            API_BASE="https://api.openai.com/v1"
-            # OpenAI 默认模型（如果未指定）
-            DEFAULT_MODEL="gpt-4o"
-            # 使用指定的模型或默认模型
-            MODEL="${CODEX_MODEL:-$DEFAULT_MODEL}"
-            
-            # 创建 Codex 配置文件目录
-            mkdir -p ~/.codex
-            
-            # 创建 config.toml 配置文件（使用 OpenAI）
-            cat > ~/.codex/config.toml <<EOF
-          model_provider = "openai"
-          model = "$MODEL"
-          model_reasoning_effort = "none"
-          disable_response_storage = true
-          preferred_auth_method = "apikey"
-          # 禁用 MCP 服务器以避免连接等待
-          disable_mcp = true
-
-          [model_providers.openai]
-          name = "OpenAI"
-          base_url = "$API_BASE"
-          env_key = "OPENAI_API_KEY"
-          EOF
-            
-            # 设置环境变量
-            export OPENAI_API_KEY="$API_KEY"
           else
             echo "ERROR: Neither OPENAI_API_KEY nor OPENROUTER_API_KEY is set!"
             exit 1
@@ -256,20 +257,34 @@ jobs:
           # Codex 工具会从 ~/.codex/config.toml 读取配置
           # 禁用 MCP 和 reasoning 以避免无限循环
           # 设置超时：5 分钟超时，快速失败避免无限循环
-          # 设置必要的环境变量
-          if [ -n "$OPENROUTER_API_KEY" ]; then
-            # 使用 OpenRouter，设置必要的环境变量
-            echo "=== Starting Codex execution ==="
-            echo "Model: $MODEL"
-            echo "Provider: OpenRouter"
-            echo "Working directory: $(pwd)"
-            echo "Files in repo:"
-            ls -la | head -20
-            echo ""
-            echo "=== Codex Prompt ==="
-            cat CODEX_PROMPT.txt
-            echo ""
-            echo "=== Running Codex ==="
+          # 执行 Codex（优先级：OpenAI > OpenRouter）
+          echo "=== Starting Codex execution ==="
+          echo "Model: $MODEL"
+          echo "Provider: $([ -n "$OPENAI_API_KEY" ] && echo "OpenAI" || echo "OpenRouter")"
+          echo "Working directory: $(pwd)"
+          echo "Files in repo:"
+          ls -la | head -20
+          echo ""
+          echo "=== Codex Prompt ==="
+          cat CODEX_PROMPT.txt
+          echo ""
+          echo "=== Running Codex ==="
+          
+          if [ -n "$OPENAI_API_KEY" ]; then
+            # 使用 OpenAI 直接 API（更兼容 Codex）
+            timeout 300 env OPENAI_API_KEY="$API_KEY" \
+                CODEX_DISABLE_MCP="true" \
+                MCP_DISABLED="true" \
+                CODEX_DISABLE_REASONING="true" \
+                CODEX_REASONING_EFFORT="none" \
+                npx -y @openai/codex exec --full-auto -C . - < CODEX_PROMPT.txt 2>&1 || {
+              echo ""
+              echo "⚠️ Codex execution timed out or failed after 5 minutes"
+              echo "Exit code: $?"
+              echo "Continuing workflow despite Codex failure..."
+            }
+          elif [ -n "$OPENROUTER_API_KEY" ]; then
+            # 使用 OpenRouter（可能有工具调用兼容性问题）
             timeout 300 env OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
                 HTTP_REFERER="https://github.com/${{ github.repository }}" \
                 X_TITLE="GitHub Actions Agent" \
@@ -281,17 +296,8 @@ jobs:
               echo ""
               echo "⚠️ Codex execution timed out or failed after 5 minutes"
               echo "Exit code: $?"
-              echo "Continuing workflow despite Codex failure..."
-            }
-          else
-            # 使用 OpenAI
-            timeout 300 env OPENAI_API_KEY="$API_KEY" \
-                CODEX_DISABLE_MCP="true" \
-                MCP_DISABLED="true" \
-                CODEX_DISABLE_REASONING="true" \
-                CODEX_REASONING_EFFORT="none" \
-                npx -y @openai/codex exec --full-auto -C . - < CODEX_PROMPT.txt || {
-              echo "⚠️ Codex execution timed out or failed after 5 minutes"
+              echo "Note: OpenRouter may have tool call compatibility issues with Codex"
+              echo "Consider using OPENAI_API_KEY instead for better compatibility"
               echo "Continuing workflow despite Codex failure..."
             }
           fi
