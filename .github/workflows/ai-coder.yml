@@ -1,0 +1,201 @@
+name: AI Coder
+
+on:
+  issues:
+    types: [labeled]
+
+# Prevent multiple concurrent runs for the same issue
+concurrency:
+  group: ai-coder-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+  # Note: Some repositories may require explicit permission grants
+  # If you still see permission errors, check repository settings:
+  # Settings → Actions → General → Workflow permissions
+
+jobs:
+  ai-coder:
+    # Only trigger when the 'ai: request' label is applied to prevent accidental cost overruns
+    if: github.event.label.name == '⚡ai:request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30  # Prevent jobs from hanging indefinitely
+    
+    # Explicitly set permissions at job level to ensure they are applied
+    # This overrides any repository-level default permissions
+    permissions:
+      contents: write      # Required to push code changes
+      pull-requests: write # Required to create/update pull requests
+      issues: write        # Required to write issue information
+
+    # Set default branch name
+    env:
+      DEFAULT_BRANCH: main
+
+    steps:
+      - name: Validate Environment and Secrets
+        id: validate
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.OPENROUTER_API_KEY }}" ]; then
+            echo "::error::OPENROUTER_API_KEY secret is not set"
+            exit 1
+          fi
+          echo "✅ Environment validated"
+          echo "issue_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+          echo "branch_name=feat/issue-${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+
+      - name: Checkout Repository
+        id: checkout
+        uses: actions/checkout@v6
+        with:
+          # Fetch full history for proper branch management
+          fetch-depth: 0
+          # Use default GITHUB_TOKEN (automatically provided with workflow permissions)
+          # Explicitly setting token ensures it has the correct permissions
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          # GitHub caches Python versions, which can be faster than uv python install
+          # We still use setup-python for Python, and uv for package management
+
+      - name: Install uv (Fast Python Package Manager)
+        uses: astral-sh/setup-uv@v7
+        with:
+          # Use specific version instead of "latest" to avoid version check overhead
+          # This saves 1-3 seconds by skipping version resolution on each run
+          # To update: Check https://github.com/astral-sh/uv/releases and update version number
+          version: "0.9.20"  # Pin version for faster installation (no version resolution needed)
+          # Set Python version for uv to use (matches setup-python above)
+          python-version: "3.12"
+          # Enable cache: automatically caches uv's package cache
+          # 'true' explicitly enables cache on all runners
+          enable-cache: "true"
+          # Optimize cache settings for speed
+          restore-cache: "true"
+          save-cache: "true"
+          # Note: uv tool install has its own caching mechanism
+          # No need for cache-dependency-glob when using tool install
+          # Skip problem matchers for faster execution (optional, removes error highlighting)
+          # add-problem-matchers: "false"  # Uncomment if you don't need error highlighting
+          # uv automatically handles wheel packages (no manual wheel installation needed)
+          # uv prioritizes pre-built wheels for faster installation
+
+      - name: Install Python Dependencies with uv
+        id: install-deps
+        shell: bash
+        env:
+          # Optimize uv performance
+          # UV_CONCURRENT_DOWNLOADS: Increase parallel downloads (default: 50)
+          UV_CONCURRENT_DOWNLOADS: "100"
+          # UV_CONCURRENT_INSTALLS: Increase parallel installs (default: 16)
+          UV_CONCURRENT_INSTALLS: "32"
+          # UV_NO_CACHE: Disable if you want to use cache (we want cache, so don't set this)
+          # UV_INDEX_STRATEGY: Use 'unsafe-any-match' for faster index resolution
+          UV_INDEX_STRATEGY: "unsafe-any-match"
+        run: |
+          # uv tool install creates an isolated environment and installs aider-chat
+          # Performance optimizations:
+          # 1. Check if tool is already installed to avoid unnecessary reinstall
+          # 2. Use specific version instead of @latest to leverage cache better
+          # 3. --python python3.12: Use specific Python version (faster than auto-detection)
+          # 4. --with pip: Ensure pip is available (required for some packages)
+          # 5. Environment variables above optimize parallel operations
+          # 6. Built-in caching (handled by setup-uv action) speeds up subsequent runs
+          # 7. Parallel downloads and installs (configured via env vars)
+          
+          # Install aider-chat using uv tool install
+          # uv tool install automatically:
+          # - Checks if tool is already installed
+          # - Skips installation if version matches (leverages cache)
+          # - Uses cached packages when available
+          # - Only downloads/installs what's needed
+          #
+          # Version specification: Use >= for flexibility, or == for exact version
+          # Update version here when needed: https://pypi.org/project/aider-chat/
+          echo "📦 Installing aider-chat (uv will use cache if already installed)"
+          uv tool install --python python3.12 --with pip "aider-chat>=0.86.1"
+          
+          echo "✅ Dependencies installed with uv"
+          
+          # Verify aider is installed and accessible
+          if ! command -v aider &> /dev/null; then
+            echo "::error::aider command not found after installation"
+            echo "PATH: $PATH"
+            echo "Installed tools:"
+            uv tool list || true
+            exit 1
+          fi
+          
+          # Display version for verification
+          echo "✅ Aider installed successfully:"
+          aider --version || true
+
+      - name: Configure Git User Identity
+        shell: bash
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Create or Checkout Feature Branch
+        id: create-branch
+        shell: bash
+        run: |
+          ./.github/scripts/create-branch.sh "${{ github.event.issue.number }}" "${DEFAULT_BRANCH}"
+
+      - name: Run Aider AI Coding Agent
+        id: run-aider
+        shell: bash
+        env:
+          # OpenRouter API key for Aider to use Claude Sonnet 4.5 via OpenRouter
+          # Aider uses litellm which supports OpenRouter when OPENROUTER_API_KEY is set
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Safely pass issue data via environment variables to prevent script injection
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          BRANCH_NAME: ${{ steps.create-branch.outputs.branch_name }}
+          DEFAULT_BRANCH: ${{ env.DEFAULT_BRANCH }}
+          INITIAL_COMMIT: ${{ steps.create-branch.outputs.initial_commit }}
+        run: |
+          ./.github/scripts/run-aider.sh
+
+      - name: Push Changes to Remote Branch
+        id: push-changes
+        if: steps.run-aider.outputs.has_changes == 'true'
+        shell: bash
+        run: |
+          ./.github/scripts/push-changes.sh "${{ steps.create-branch.outputs.branch_name }}" "${DEFAULT_BRANCH}"
+
+      - name: Create or Update Pull Request
+        id: create-pr
+        if: |
+          steps.run-aider.outputs.has_changes == 'true' &&
+          (steps.push-changes.outputs.push_success == 'true' || steps.push-changes.outputs.push_success == '' || steps.push-changes.outcome == 'skipped')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Safely pass issue data via environment variables to prevent script injection
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          ./.github/scripts/create-pr.sh "${{ steps.create-branch.outputs.branch_name }}" "${DEFAULT_BRANCH}"
+
+      - name: Generate Workflow Summary
+        if: always()
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          BRANCH_NAME: ${{ steps.create-branch.outputs.branch_name }}
+          HAS_CHANGES: ${{ steps.run-aider.outputs.has_changes }}
+          PR_EXISTS: ${{ steps.create-pr.outputs.pr_exists }}
+          PR_NUMBER: ${{ steps.create-pr.outputs.pr_number }}
+          PR_URL: ${{ steps.create-pr.outputs.pr_url }}
+        run: |
+          ./.github/scripts/workflow-summary.sh
