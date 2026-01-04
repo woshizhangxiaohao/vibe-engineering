@@ -1,4 +1,4 @@
-name: Vibe AI Engine
+name: Vibe AI Engine (Fix ESM)
 
 on:
   issues:
@@ -7,71 +7,58 @@ on:
     types: [opened, synchronize]
 
 jobs:
-  vibe-assistant:
+  ai-orchestrator:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    permissions:
+      issues: write
+      pull-requests: write
 
+    steps:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install dependencies
-        run: npm install axios @actions/github
+      - name: Install axios
+        run: npm install axios
 
-      - name: "AI: Process Issue (Spec Generation)"
-        if: github.event_name == 'issues'
+      - name: "Vibe Flow: Run AI"
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
+          EVENT_CONTEXT: ${{ github.event_name }}
         uses: actions/github-script@v7
         with:
           script: |
-            const { callOpenRouter } = require('./.github/scripts/vibe_ai.js');
-            const prompt = `你是一个全栈专家。基于以下需求，请为 Go 后端和 Next.js 前端生成技术方案：
-            标题: ${process.env.ISSUE_TITLE}
-            描述: ${process.env.ISSUE_BODY}
-            
-            要求提供：
-            1. Go 的关键 Struct 定义。
-            2. Next.js 的页面逻辑建议。
-            3. API 契约（JSON 格式说明）。`;
-            
-            const aiResponse = await callOpenRouter(prompt);
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: "🤖 **Vibe AI 架构建议:**\n\n" + aiResponse
-            });
+            // 使用动态导入解决 ESM 问题
+            const axios = (await import('axios')).default;
 
-      - name: "AI: Code Review (Night Watch)"
-        if: github.event_name == 'pull_request'
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { callOpenRouter } = require('./.github/scripts/vibe_ai.js');
-            const { data: diff } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number,
-              mediaType: { format: 'diff' }
-            });
-            
-            const prompt = `请对以下代码改动进行 Review。
-            技术栈: Go, Next.js, Tailwind CSS。
-            重点检查：Go 的错误处理、TypeScript 类型安全、Vibe Kanban 的简洁风格。
-            Diff 内容: \n${diff.substring(0, 5000)}`; // 截取防止过长
-            
-            const aiResponse = await callOpenRouter(prompt);
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: "🤖 **Vibe AI 代码评审:**\n\n" + aiResponse
-            });
+            async function askAI(prompt) {
+              const res = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+                model: "anthropic/claude-3.5-sonnet",
+                messages: [{ role: "user", content: prompt }]
+              }, {
+                headers: {
+                  'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                  'Content-Type': 'application/json'
+                }
+              });
+              return res.data.choices[0].message.content;
+            }
+
+            if (process.env.EVENT_CONTEXT === 'issues') {
+              const prompt = `你是一个全栈专家。针对以下需求，为 Go + Next.js 团队制定技术方案：
+              标题: ${process.env.ISSUE_TITLE}
+              描述: ${process.env.ISSUE_BODY}
+              请给出：Go 关键 Struct 定义、API 定义、Next.js 组件建议。
+              请遵循 Vibe Kanban 的简洁风格。`;
+              
+              const response = await askAI(prompt);
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: "🤖 **Vibe AI 架构建议:**\n\n" + response
+              });
+            }
