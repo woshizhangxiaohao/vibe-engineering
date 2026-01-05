@@ -1,87 +1,117 @@
-# Vibe Engineering Playbook
+# 🌊 VibeFlow: AI-Native Development Workflow
 
-This repository documents the minimal automation needed to run an issue-driven agent that ships code through GitHub Actions and a PR review bot.
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Status](https://img.shields.io/badge/status-experimental-orange)
+![AI-Powered](https://img.shields.io/badge/AI-OpenRouter-purple)
 
-## Automation Flow
+**VibeFlow** 是一个探索性的 GitHub Action 工作流套件，旨在通过 AI Agent (Claude-3.5-Sonnet) 将 GitHub Issue 直接转化为可运行的代码 PR，实现“需求即代码”的自动化闭环。
 
-1. Create or label an issue to start the automation:
-   - Add the `agent-task` label, **or**
-   - Open an issue with a title starting with `[Agent]`.
-2. GitHub Actions (`.github/workflows/agent-task.yml`) checks out the repo, saves the issue body to `ISSUE.md`, runs the Python implementation script (`scripts/implement_issue.py`), and opens a pull request on `agent/issue-<ID>`.
-3. The pull request clearly references the originating issue and can be auto-reviewed using `REVIEW_CHECKLIST.md`.
+## 1. VibeFlow 思维导图 (Conceptual Mind Map)
+```mermaid
+graph LR
+    direction LR
 
-## Key Files
+    subgraph S1 [阶段一：需求]
+        A[👤 Issue] --> B["🤖 PM Agent<br/>(识别 Label/艾特)"]
+    end
 
-- `.github/workflows/agent-task.yml`: Workflow that triggers on qualifying issues and runs the implementation script.
-- `scripts/implement_issue.py`: Python script that reads ISSUE.md, calls AI API, and generates code files.
-- `AGENT_PROTOCOL.md`: Guidance for implementation planning, execution, verification, and escalation.
-- `REVIEW_CHECKLIST.md`: Taste-focused review checklist for automated and human reviewers.
-- `DAILY_TODOLIST.md`: Cross-functional daily checklist (PM/FE/BE/Ops) with AI-teammate prompts.
-- `PROJECT_DESIGN.md`: Collaboration design (roles/rituals/artifacts) to make cross-functional work runnable.
-- `.github/ISSUE_TEMPLATE/*`: Feature/Bug/Release templates for PM/FE/BE/Ops.
-- `PULL_REQUEST_TEMPLATE.md`: PR template requiring evidence, risks, and rollback.
-- `TODOLIST_PROJECT_PLAN.md`: 完整的 TodoList 项目计划，遵循 [Vibe Guide](https://www.vibekanban.com/vibe-guide) 最佳实践。
-- `TODOLIST_ISSUE.md`: TodoList 项目的 Issue 模板示例。
+    subgraph S2 [阶段二：快速编码]
+        B --> C["⚙️ Runner 扫描"]
+        C -- "生成目录树 + Config" --> D["🤖 Codegen Agent<br/>(FE/BE)"]
+        D --> E[📦 提交 PR]
+    end
 
-## Quick Start
+    subgraph S3 [阶段三：真人复核]
+        E --> F["🤖 AI Review<br/>(Guard)"]
+        F --> G["👨‍💻 真人工程师<br/>(Reviewer)"]
+        G --> H["🚀 Merge"]
+    end
 
-想要测试整个流程？查看 `EXAMPLE_ISSUE.md` 获取完整的测试 Issue 示例。
+    style C fill:#fff1f0,stroke:#ff4d4f,stroke-dasharray: 5 5
+```
 
-1. 复制 `EXAMPLE_ISSUE.md` 中的内容
-2. 在 GitHub 创建新 Issue，标题以 `[Agent]` 开头
-3. 粘贴内容并提交
-4. GitHub Actions 会自动运行 Python 脚本，调用 AI API 生成代码并创建 PR
-5. 检查 PR 中的代码改动，确认可以运行
+这个流程图强调了**“人类设定目标，AI 执行路径，人类验收结果”**的循环。AI 不再是一个简单的辅助工具，而是介入了特定环节的“虚拟员工”。
 
-**配置要求**：
+## 2. VibeFlow 技术架构流程图 (Technical Architecture Flowchart)
 
-- 推荐：配置 `OPENROUTER_API_KEY`，默认使用 `openai/gpt-5.1-codex`（专为代码生成优化）
-- 备选：配置 `OPENAI_API_KEY`，使用 `gpt-4o`
-- 可选：配置 `MODEL` secret 指定其他模型（如 `openai/gpt-5.2`）
+这张泳道图展示了如何在 GitHub 平台、GitHub Actions 运行环境和 OpenRouter AI API 之间流转的。
 
-## Vibe Guide 最佳实践
+```mermaid
+graph LR
+    %% 方向：从左到右
+    direction LR
 
-本项目遵循 [Vibe Guide](https://www.vibekanban.com/vibe-guide) 的最佳实践：
+    %% 定义样式
+    classDef human fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    classDef github fill:#f3e5f5,stroke:#7b1fa2;
+    classDef runner fill:#fff3e0,stroke:#e65100;
+    classDef ai fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
 
-### Planning
+    %% 阶段一：需求识别与分发
+    subgraph S1 ["阶段一：需求识别 (Planning)"]
+        H1["👤 创建 Issue<br/>(含标签/艾特)"]:::human --> G1("🐙 GitHub Event"):::github
+        G1 --> R1["🤖 PM Agent<br/>(任务拆解)"]:::ai
+        R1 -- "识别 FE/BE 标签" --> R2{任务分发器}
+    end
 
-- ✅ **先做计划**：Agent 会自动生成 `EXEC_PLAN.md`
-- ✅ **Plan more, review less**：详细规划，减少审查时间
-- ✅ **Planning sets the shape**：计划决定代码结构
+    %% 阶段二：快速编码与上下文注入
+    subgraph S2 ["阶段二：AI 编码 (Execution)"]
+        R2 -- "/codegen" --> R3["⚙️ Runner 静态扫描<br/>(生成目录树+依赖)"]:::runner
+        R3 -- "注入上下文" --> R4["🤖 定向 Agent<br/>(FE 或 BE)"]:::ai
+        R4 --> R5["📦 自动生成 PR"]:::runner
+    end
 
-### Code Quality
+    %% 阶段三：AI 初审与真人闭环
+    subgraph S3 ["阶段三：质量闭环 (Review)"]
+        R5 --> R6["🤖 Guard Agent<br/>(AI 报告)"]:::ai
+        R6 -- "自动指派" --> H2["👨‍💻 真人专家<br/>(FE/BE Lead)"]:::human
+        H2 -- "Final CR" --> H3{决策: Merge?}:::human
+        H3 -- "Approve" --> END["🚀 生产发布"]:::github
+        H3 -- "Reject" --> H1
+    end
 
-- ✅ **No backwards compatibility**：不关心向后兼容，优先代码可读性
-- ✅ **Disable disabling lint rules**：禁止使用 `eslint-disable` 等禁用规则
+    %% 连线美化
+    R2 -- "反馈方案" --> G_COM["💬 Issue 评论"]:::github
+```
 
-### Frontend Best Practices
+**事件驱动 (Event-Driven)**：整个系统是“休眠”的，只有当 GitHub 上发生特定事件（开 Issue、写评论、提 PR）时才会被唤醒。这非常高效且节省资源。
 
-- ✅ **Separate presentation from logic**：展示组件和业务逻辑组件分离
-- ✅ **Restrict Tailwind**：使用受限的设计系统，禁止随意使用 Tailwind 类
+**上下文增强 (Context RAG)**：注意 R2b 节点。这是我之前建议补全的关键步骤。AI 不是在真空中写代码，Action Runner 必须先读取当前仓库的文件结构和关键配置（如 go.mod, package.json），把这些“上下文”一起喂给 AI，它才能写出正确的、可运行的代码。
 
-### Development Setup
+## 🚀 核心功能
 
-- ✅ **Set the codebase up to be QA'd**：确保代码可以测试和验证
-- ✅ **Solve dev servers**：解决开发服务器端口冲突问题
-- ✅ **Add dummy data**：添加假数据，确保可以离线运行
+### 1. 📝 Spec Generation (规划)
+当你创建一个 **Issue** 时，VibeFlow 会自动分析需求，生成一份结构化的 **Vibe Relay Card**（技术接力卡）。
+- **作用**: 将模糊需求转化为 Context, Backend, Frontend 明确的技术方案。
+- **触发**: `New Issue`
 
-### Async & Model Selection
+### 2. ⚡️ Auto Codegen (编码)
+在 Issue 评论区输入 `/codegen` 指令，AI 工程师将接管键盘。
+- **流程**: 读取 Issue 上下文 + 项目目录结构 -> 生成代码 -> 自动创建分支 -> 提交 PR。
+- **触发**: `Issue Comment: /codegen`
 
-- ✅ **Biggest model is fastest**：使用最大的模型（`openai/gpt-5.1-codex`）
-- ✅ **Use YOLO mode**：减少人工干预，让 Agent 自主工作
+### 3. 🛡️ Night Watch (审查)
+当有 **Pull Request** 提交或更新时，AI 会自动进行 Code Review。
+- **输出**: Vibe Score (1-10)、关键 Bug 预警、优化建议。
+- **触发**: `PR Open / Synchronize`
 
-## TodoList 项目示例
+---
 
-查看 `TODOLIST_ISSUE.md` 获取完整的 TodoList 项目 Issue 示例。该项目展示了如何：
+## 🛠️ 安装与配置
 
-1. 创建符合 Vibe Guide 的 Issue
-2. 使用 Go + Next.js 技术栈
-3. 遵循最佳实践（组件分离、Tailwind 限制、ESLint 规则等）
-4. 通过 GitHub Actions 自动运行代码
+### 1. 设置 Secrets
+在你的 GitHub 仓库 `Settings` -> `Secrets and variables` -> `Actions` 中添加：
+- `OPENROUTER_API_KEY`: 你的 OpenRouter API Key (推荐使用 Claude 3.5 Sonnet 模型)
 
-## Operating Guidelines
+### 2. 部署 Workflow
+将本项目 `.github/workflows` 目录下的 YAML 文件复制到你的仓库中：
+- `vibe-spec-guard.yml`: 处理 Issue 分析和 PR 审查。
+- `vibe-codegen.yml`: 处理代码生成指令。
 
-- Treat each issue as the contract for the agent's work; keep requirements and acceptance criteria there.
-- Prefer small, reviewable changes with clear assumptions documented in commits or the PR body.
-- Use the review checklist to catch clarity, scope, and testing risks early.
-- Follow Vibe Guide best practices for code quality and development workflow.
+### 3. 权限设置
+确保你的 Workflow 拥有读写权限。在 `.github/workflows` 文件中已配置：
+```yaml
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
