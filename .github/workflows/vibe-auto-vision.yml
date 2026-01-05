@@ -7,7 +7,7 @@ on:
 jobs:
   product-intelligence:
     # 只有标签名为 'ai-pm' 时才执行
-    if: github.event.label.name == 'ai-pm'
+    if: github.event.label.name == '💡 insight'
     runs-on: ubuntu-latest
     permissions:
       issues: write
