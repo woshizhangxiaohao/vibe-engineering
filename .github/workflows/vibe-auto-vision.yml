@@ -1,19 +1,18 @@
-name: AI Product Strategist (Zero Dependency)
+name: AI Product PM
 
 on:
   issues:
-    types: [opened]
+    types: [labeled]
 
 jobs:
-  product-intelligence:
-    # 只有标签名为 'ai-pm' 时才执行
+  pm-insight:
     if: github.event.label.name == '💡 insight'
     runs-on: ubuntu-latest
     permissions:
       issues: write
 
     steps:
-      - name: "Analyze Product Requirements"
+      - name: "PM Analysis"
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ISSUE_BODY: ${{ github.event.issue.body }}
@@ -21,59 +20,31 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            async function askAI(prompt) {
-              const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                  'Content-Type': 'application/json',
-                  'HTTP-Referer': 'https://github.com/lessthanno/vibe-engineering-playbook'
-                },
-                body: JSON.stringify({
-                  model: "anthropic/claude-sonnet-4.5", // 3.5 Sonnet 在逻辑拆解上极具性价比
-                  messages: [{ role: "user", content: prompt }]
-                })
-              });
+            const prompt = `你是一个资深产品经理。请对以下需求进行产品化拆解：
+            标题: ${process.env.ISSUE_TITLE}
+            描述: ${process.env.ISSUE_BODY || "（无描述）"}
+            
+            请给出：核心痛点、用户故事、MVP 功能范围、潜在风险点。`;
 
-              if (!response.ok) {
-                const error = await response.text();
-                throw new Error(`OpenRouter API Error: ${error}`);
-              }
+            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': 'https://github.com/ai-product-pm'
+              },
+              body: JSON.stringify({
+                model: "anthropic/claude-sonnet-4.5",
+                messages: [{ role: "user", content: prompt }]
+              })
+            });
 
-              const data = await response.json();
-              return data.choices[0].message.content;
-            }
+            const data = await response.json();
+            const aiResponse = data.choices[0].message.content;
 
-            const title = process.env.ISSUE_TITLE;
-            const body = process.env.ISSUE_BODY || "No description provided.";
-
-            const prompt = `你是一位经验丰富的资深产品经理 (Senior PM)。
-            请针对以下提交的功能需求/问题反馈，提供专业的产品化建议和需求拆解：
-
-            需求标题: ${title}
-            详细描述: ${body}
-
-            请按以下结构输出建议（使用 Markdown）：
-            1. **核心痛点分析**：简单描述该需求解决了用户什么问题。
-            2. **用户故事 (User Stories)**：以 "作为...我希望...以便于..." 的格式提供 2-3 个场景。
-            3. **核心功能逻辑**：描述实现该功能的主要业务流程或关键逻辑。
-            4. **MVP 范围建议**：哪些是必须做的 (Must-have)，哪些可以后续迭代。
-            5. **潜在风险点**：需要注意的边界情况或用户体验坑点。
-
-            请保持回答简洁、专业且具有启发性。`;
-
-            console.log("Generating product insights...");
-            try {
-              const aiResponse = await askAI(prompt);
-              
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: "💡 **AI 产品需求洞察:**\n\n" + aiResponse
-              });
-              console.log("Insights posted successfully.");
-            } catch (err) {
-              console.error("Workflow failed:", err);
-              core.setFailed(err.message);
-            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "💡 **AI 产品需求洞察:**\n\n" + aiResponse
+            });
