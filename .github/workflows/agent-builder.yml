@@ -339,7 +339,7 @@ jobs:
             
             console.log(`📋 从父级规范和讨论中识别到 ${foundPaths.size} 个文件路径`);
             
-            // 收集现有文件和新文件
+            // 收集现有文件和新文件（初步检查，基于 main 分支）
             const existingFilesContext = [];
             const newFilePaths = [];
             
@@ -397,12 +397,13 @@ jobs:
             const pkgContent = await readFileContent(pkgPath);
             if (pkgContent) packageJsonContent = pkgContent;
 
-            // 5. 构建结构化 Prompt
-            const existingFilesStr = existingFilesContext.map(f => 
+            // 5. 构建结构化 Prompt（使用占位符，稍后更新）
+            // 注意：existingFilesStr 和 newFilesList 会在确定分支后更新
+            let existingFilesStr = existingFilesContext.map(f => 
               '### ' + f.action + ': ' + f.path + '\n```\n' + f.content + '\n```'
             ).join('\n\n');
 
-            const newFilesList = newFilePaths.length > 0 ? newFilePaths.map(p => '- ' + p).join('\n') : '无';
+            let newFilesList = newFilePaths.length > 0 ? newFilePaths.map(p => '- ' + p).join('\n') : '无';
             
             // 构建父级规范提示
             let parentSpecNote = '';
@@ -414,6 +415,9 @@ jobs:
                 '父级规范优先级高于项目结构规范。\n';
             }
             
+            // 初始化页面检查提示（稍后在确定分支后更新）
+            let pageCheckNote = '';
+            
             const prompt = '你是一名 Next.js 前端专家，负责根据需求精准修改或创建代码。\n\n' +
               '【项目结构规范（默认）】\n' +
               '- 页面文件: frontend/app/[route]/page.tsx\n' +
@@ -424,6 +428,7 @@ jobs:
               '- 工具函数: frontend/lib/utils/\n' +
               '- 类型定义: frontend/types/\n' +
               parentSpecNote +
+              pageCheckNote +
               '\n【当前目录结构】\n' +
               projectTree + '\n\n' +
               '【现有文件内容】\n' +
@@ -452,7 +457,8 @@ jobs:
               '   - 如果父级规范未指定，页面放在 frontend/app/[route]/page.tsx\n' +
               '   - 组件必须放在 frontend/components/ 下（或父级规范指定的位置）\n' +
               '   - 检查是否有可复用的现有组件\n' +
-              '   - **优先使用【待创建文件路径】中列出的路径，这些路径来自父级规范和讨论**\n\n' +
+              '   - **优先使用【待创建文件路径】中列出的路径，这些路径来自父级规范和讨论**\n' +
+              '   - **如果需求中提到了页面功能，必须创建对应的页面文件**\n\n' +
               '3. **禁止操作**：\n' +
               '   - 禁止删除现有代码\n' +
               '   - 禁止重写已存在的文件（只能修改）\n' +
@@ -519,6 +525,12 @@ jobs:
               '```  <-- 禁止！代码块内不能有 Markdown';
 
             console.log("🤖 调用 AI...");
+            if (requiredPagePath) {
+              console.log(`📄 页面检查：需要创建页面 ${requiredPagePath}`);
+            }
+            if (existingFilesInBranch.length > 0) {
+              console.log(`📄 文件检查：${existingFilesInBranch.length} 个文件在当前分支已存在，必须使用 MODIFY`);
+            }
 
             const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
               method: 'POST',
@@ -528,7 +540,7 @@ jobs:
               },
               body: JSON.stringify({
                 model: "anthropic/claude-sonnet-4.5",
-                messages: [{ role: "user", content: prompt }]
+                messages: [{ role: "user", content: finalPrompt }]
               })
             });
             
@@ -676,6 +688,138 @@ jobs:
                 return false;
               }
             };
+            
+            // 读取文件在当前分支的内容
+            const readFileContentFromBranch = async (path, branch) => {
+              try {
+                const { data } = await github.rest.repos.getContent({ 
+                  ...context.repo, 
+                  path,
+                  ref: branch
+                });
+                if (data.size < 80000 && data.content) {
+                  return Buffer.from(data.content, 'base64').toString();
+                }
+              } catch (e) {}
+              return null;
+            };
+            
+            // 6.5. 重新检查文件在当前分支的存在性，并更新文件列表
+            console.log(`🔍 重新检查文件在当前分支 ${branchName} 的存在性...`);
+            const existingFilesInBranch = [];
+            const newFilesInBranch = [];
+            
+            // 检查所有已识别的文件路径
+            for (const path of foundPaths) {
+              const existsInBranch = await fileExistsInBranch(path, branchName);
+              if (existsInBranch) {
+                const content = await readFileContentFromBranch(path, branchName);
+                if (content) {
+                  existingFilesInBranch.push({ path, content, action: 'MODIFY' });
+                  console.log(`📄 [分支存在] ${path}`);
+                }
+              } else {
+                newFilesInBranch.push(path);
+                console.log(`🆕 [分支新建] ${path}`);
+              }
+            }
+            
+            // 更新 existingFilesStr 和 newFilesList（使用当前分支的信息）
+            // 优先使用当前分支的文件内容，main 分支的文件作为参考
+            const updatedExistingFiles = [];
+            for (const file of existingFilesInBranch) {
+              updatedExistingFiles.push(file);
+            }
+            // 添加 main 分支存在但当前分支不存在的文件（作为参考）
+            for (const file of existingFilesContext) {
+              const existsInBranch = await fileExistsInBranch(file.path, branchName);
+              if (!existsInBranch && !updatedExistingFiles.find(f => f.path === file.path)) {
+                updatedExistingFiles.push({ ...file, action: 'REFERENCE' });
+                console.log(`📄 [参考] ${file.path} (main 分支存在，当前分支不存在)`);
+              }
+            }
+            
+            // 更新文件列表
+            existingFilesStr = updatedExistingFiles.map(f => 
+              '### ' + f.action + ': ' + f.path + '\n```\n' + f.content + '\n```'
+            ).join('\n\n');
+            
+            newFilesList = newFilesInBranch.length > 0 ? newFilesInBranch.map(p => '- ' + p).join('\n') : '无';
+            
+            // 构建文件存在性说明
+            let fileExistenceNote = '';
+            if (existingFilesInBranch.length > 0) {
+              fileExistenceNote = '\n\n【⚠️ 重要：文件存在性检查】\n' +
+                '以下文件在当前分支已存在，**必须使用 MODIFY 操作，不能使用 CREATE**：\n' +
+                existingFilesInBranch.map(f => `- ${f.path}`).join('\n') + '\n' +
+                '如果需求中提到了这些文件，你必须在现有文件基础上修改，而不是创建新文件。\n' +
+                '**特别注意页面文件**：如果页面已存在，必须修改现有页面，不能创建新页面。\n';
+            }
+            
+            // 6.6. 检查是否需要创建页面：从需求描述和父级规范中提取页面路径（在确定分支后）
+            let requiredPagePath = null;
+            const pagePathPatterns = [
+              /frontend\/app\/\(main\)\/[\w\-\.\/]+page\.tsx/g,
+              /frontend\/app\/[\w\-\.\/]+page\.tsx/g,
+              /app\/\(main\)\/[\w\-\.\/]+page\.tsx/g,
+              /app\/[\w\-\.\/]+page\.tsx/g
+            ];
+            
+            // 从父级规范和需求描述中查找页面路径
+            const allTextForPageCheck = (parentSpec || '') + '\n' + contextBody + '\n' + newFilesList;
+            for (const pattern of pagePathPatterns) {
+              const matches = allTextForPageCheck.match(pattern);
+              if (matches && matches.length > 0) {
+                // 找到第一个页面路径
+                let foundPath = matches[0];
+                if (!foundPath.startsWith('frontend/')) {
+                  foundPath = 'frontend/' + foundPath;
+                }
+                // 检查页面是否在当前分支已存在
+                const pageExists = await fileExistsInBranch(foundPath, branchName);
+                if (!pageExists) {
+                  requiredPagePath = foundPath;
+                  console.log(`📄 检测到需要创建的页面: ${requiredPagePath}`);
+                  break;
+                }
+              }
+            }
+            
+            // 更新页面检查提示
+            if (requiredPagePath) {
+              pageCheckNote = '\n\n【⚠️ 重要：必须创建页面】\n' +
+                `检测到需求中提到了页面路径 ${requiredPagePath}，但该页面在当前分支不存在。\n` +
+                `**你必须创建这个页面文件**，否则功能无法正常使用。\n` +
+                `请确保在输出中包含：\n` +
+                `### CREATE: ${requiredPagePath}\n` +
+                ````tsx\n` +
+                `(完整的页面代码)\n` +
+                ````\n`;
+            } else if (newFilesList.includes('page.tsx') || contextBody.includes('页面') || contextBody.includes('page')) {
+              // 检查是否有页面在当前分支已存在
+              const existingPages = existingFilesInBranch.filter(f => f.path.includes('/page.tsx'));
+              if (existingPages.length > 0) {
+                pageCheckNote = '\n\n【⚠️ 页面检查】\n' +
+                  '需求中提到了页面相关的内容。\n' +
+                  `**以下页面在当前分支已存在，必须使用 MODIFY 操作**：\n` +
+                  existingPages.map(f => `- ${f.path}`).join('\n') + '\n' +
+                  '如果需求是要修改现有页面，请使用 MODIFY 操作。\n' +
+                  '如果需求是要创建新页面，请使用正确的路径格式（如 frontend/app/(main)/video/page.tsx）。\n';
+              } else {
+                // 如果提到了页面但没有找到具体路径，提醒 AI 检查
+                pageCheckNote = '\n\n【⚠️ 页面检查】\n' +
+                  '需求中提到了页面相关的内容，请检查是否需要创建新的页面文件。\n' +
+                  '如果需要创建页面，请使用正确的路径格式（如 frontend/app/(main)/video/page.tsx）。\n' +
+                  '**如果父级规范中提到了页面路径，必须严格按照父级规范创建页面**。\n';
+              }
+            }
+            
+            // 更新 prompt（使用当前分支的文件信息）
+            const finalPrompt = prompt
+              .replace(existingFilesStr, existingFilesStr) // 替换为更新后的文件列表
+              .replace(newFilesList, newFilesList) // 替换为更新后的新建文件列表
+              .replace(pageCheckNote, pageCheckNote) // 替换为更新后的页面检查提示
+              .replace('【操作规则】', fileExistenceNote + '\n【操作规则】'); // 在操作规则前插入文件存在性说明
             
             // 7. 验证和过滤文件（使用当前分支检查文件是否存在）
             const validFiles = [];
