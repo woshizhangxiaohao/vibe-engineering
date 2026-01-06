@@ -1,4 +1,4 @@
-name: Agent Builder (Frontend Strict)
+name: Agent Builder (Context Aware)
 
 on:
   issue_comment:
@@ -6,7 +6,6 @@ on:
 
 jobs:
   builder:
-    # 触发指令：/code-zhangxiaohao-agent
     if: contains(github.event.comment.body, '/code-zhangxiaohao-agent')
     runs-on: ubuntu-latest
     permissions:
@@ -17,12 +16,12 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      # ✨ 新增步骤：让 Builder 也看一眼目录，防止路径瞎写
       - name: Generate File Tree
         id: file_tree
         run: |
-          # 排除干扰项，只看关键的前端目录
           TREE=$(find . -maxdepth 5 -not -path '*/.*' -not -path '*/node_modules*' -not -path '*/dist*' -not -path '*/build*' -not -path '*/.next*' | sed 's|./||' | sort)
           echo "TREE<<EOF" >> $GITHUB_ENV
           echo "$TREE" >> $GITHUB_ENV
@@ -34,94 +33,244 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
-          PROJECT_TREE: ${{ env.TREE }} # 传入目录结构
+          PROJECT_TREE: ${{ env.TREE }}
         with:
           script: |
-            // 1. 获取历史评论 (读取架构师的前端方案)
-            console.log("📥 正在读取架构师方案...");
+            const projectTree = process.env.PROJECT_TREE;
+            const existingFiles = new Set(projectTree.split('\n').filter(f => f.trim()));
+            
+            // 项目结构规范
+            const PROJECT_STRUCTURE = {
+              pages: 'frontend/app',
+              components: 'frontend/components',
+              uiComponents: 'frontend/components/ui',
+              featureComponents: 'frontend/components/features',
+              hooks: 'frontend/hooks',
+              lib: 'frontend/lib',
+              types: 'frontend/types',
+              validExtensions: ['.tsx', '.ts', '.css', '.json'],
+              protectedFiles: ['frontend/app/layout.tsx', 'frontend/app/globals.css', 'frontend/package.json']
+            };
+
+            // 检查文件是否存在
+            const fileExists = async (path) => {
+              try {
+                await github.rest.repos.getContent({ ...context.repo, path });
+                return true;
+              } catch (e) {
+                return false;
+              }
+            };
+
+            // 读取文件内容
+            const readFileContent = async (path) => {
+              try {
+                const { data } = await github.rest.repos.getContent({ ...context.repo, path });
+                if (data.size < 80000 && data.content) {
+                  return Buffer.from(data.content, 'base64').toString();
+                }
+              } catch (e) {}
+              return null;
+            };
+
+            // 验证路径是否符合项目规范
+            const validatePath = (path) => {
+              const errors = [];
+              
+              // 页面文件必须在 app/ 目录
+              if (path.includes('/page.tsx') && !path.startsWith('frontend/app/')) {
+                errors.push(`页面文件必须在 frontend/app/ 目录: ${path}`);
+              }
+              
+              // 组件不能直接放在 app/ 目录（除了 page.tsx, layout.tsx 等）
+              const appOnlyFiles = ['page.tsx', 'layout.tsx', 'loading.tsx', 'error.tsx', 'not-found.tsx', 'template.tsx'];
+              if (path.startsWith('frontend/app/') && path.endsWith('.tsx')) {
+                const fileName = path.split('/').pop();
+                if (!appOnlyFiles.includes(fileName)) {
+                  errors.push(`组件不应放在 app/ 目录，应放在 components/: ${path}`);
+                }
+              }
+              
+              // UI 组件应放在 components/ui/
+              if (path.includes('Button') || path.includes('Input') || path.includes('Modal') || path.includes('Dialog')) {
+                if (!path.includes('components/ui/') && !path.includes('components/features/')) {
+                  errors.push(`UI 组件应放在 components/ui/ 或 components/features/: ${path}`);
+                }
+              }
+              
+              return errors;
+            };
+
+            // 1. 读取讨论记录
+            console.log("📥 读取讨论记录...");
             const comments = await github.rest.issues.listComments({
               ...context.repo,
               issue_number: context.issue.number
             });
             
+            const fullDiscussionText = comments.data.map(c => c.body).join('\n') + '\n' + process.env.ISSUE_BODY;
             const discussionHistory = comments.data
               .map(c => `[User: ${c.user.login}]:\n${c.body}`)
-              .join("\n\n--- 历史分割线 ---\n\n");
+              .join("\n\n---\n\n");
 
             // 2. 读取父级规范
             let contextBody = process.env.ISSUE_BODY;
             const parentRegex = /(?:Parent|Ref|父任务|父级|父需求|关联父需求)[\s:：]+#(\d+)/i;
             const parentMatch = contextBody.match(parentRegex);
-            
             if (parentMatch) {
-               try {
-                 const p = await github.rest.issues.get({ ...context.repo, issue_number: parentMatch[1] });
-                 contextBody += `\n\n--- [父级规范 (严格遵守)] ---\n${p.data.body}`;
-               } catch(e) {}
+              try {
+                const p = await github.rest.issues.get({ ...context.repo, issue_number: parentMatch[1] });
+                contextBody += `\n\n--- [父级规范] ---\n${p.data.body}`;
+              } catch(e) {}
             }
 
-            // 3. 读取 package.json (让 AI 知道当前有哪些包)
-            let packageJsonContext = "package.json not found";
-            try {
-               const { data: pkgData } = await github.rest.repos.getContent({
-                 ...context.repo,
-                 path: 'frontend/package.json' // 假设前端在 frontend 目录下，如果不是请按需调整
-               });
-               packageJsonContext = Buffer.from(pkgData.content, 'base64').toString();
-            } catch(e) {
-               console.log("⚠️ 未找到 frontend/package.json，尝试根目录查找...");
-               try {
-                 const { data: rootPkg } = await github.rest.repos.getContent({ ...context.repo, path: 'package.json' });
-                 packageJsonContext = Buffer.from(rootPkg.content, 'base64').toString();
-               } catch(e2) {}
-            }
-
-            // 4. 构建 Prompt
-            const prompt = `你是一名 **纯粹的前端工程师 (Next.js Expert)**。
+            // 3. 智能文件路径识别（增强版）
+            console.log("🔍 扫描相关文件...");
             
-            【真实环境信息 (不要瞎猜路径)】
-            1. **当前目录结构**：
-            ${process.env.PROJECT_TREE}
+            // 多种路径格式匹配
+            const pathPatterns = [
+              /(?:frontend|src)\/[\w\-\.\/]+\.(?:tsx|ts|css|json)/g,
+              /app\/[\w\-\.\/]+\.(?:tsx|ts)/g,
+              /components\/[\w\-\.\/]+\.(?:tsx|ts)/g,
+              /hooks\/[\w\-\.\/]+\.(?:tsx|ts)/g,
+              /lib\/[\w\-\.\/]+\.(?:tsx|ts)/g
+            ];
             
-            2. **当前 package.json**：
-            ${packageJsonContext}
-
-            【需求来源】
-            标题：${process.env.ISSUE_TITLE}
-            描述：${contextBody}
-
-            【架构师方案】
-            ${discussionHistory}
-
-            【你的任务】
-            编写前端代码文件。
-
-            【🔥 核心规则 (必须严格执行)】
-            1. **路径一致性**：请仔细比对【当前目录结构】。如果现有组件在 \`frontend/components/ui\`, 请不要创建 \`src/components/ui\`。必须复用现有目录！
-            2. **依赖管理**：
-               - 如果你使用了新的 npm 包（如 lodash, dayjs, framer-motion），**必须** 修改 \`package.json\` 并将其完整输出。
-               - 不要只给安装命令，直接更新 package.json 文件内容。
-            3. **纯前端**：只生成 .tsx, .ts, .css, .json。忽略后端文件。
-            4. **格式控制**：
-               - 代码内容 **不要** 包含 Markdown 的 \`\`\`typescript 标记。直接输出纯代码。
-               - 如果你为了排版加了 \`\`\`，脚本会自动删除第一行和最后一行，请知悉。
-
-            【输出格式】
-            请使用严格的分隔符格式：
-
-            ### FILE: frontend/app/notes/[id]/page.tsx
-            (这里直接写 import ... 不要加 \`\`\` 符号)
-            (代码内容)
-
-            ### FILE: frontend/package.json
-            (这里直接写完整的新 json 内容，不要加 \`\`\`)
-            {
-              "name": "...",
-              "dependencies": { ... }
+            let foundPaths = new Set();
+            for (const pattern of pathPatterns) {
+              const matches = fullDiscussionText.match(pattern) || [];
+              matches.forEach(p => {
+                // 标准化路径
+                let normalized = p;
+                if (!normalized.startsWith('frontend/') && !normalized.startsWith('src/')) {
+                  normalized = 'frontend/' + normalized;
+                }
+                foundPaths.add(normalized);
+              });
             }
-            `;
+            
+            // 收集现有文件和新文件
+            const existingFilesContext = [];
+            const newFilePaths = [];
+            
+            for (const path of foundPaths) {
+              const exists = await fileExists(path);
+              if (exists) {
+                const content = await readFileContent(path);
+                if (content) {
+                  existingFilesContext.push({ path, content, action: 'MODIFY' });
+                  console.log(`📄 [存在] ${path}`);
+                  
+                  // 自动发现关联文件（import 语句）
+                  const importRegex = /from\s+['"](@\/|\.\.\/|\.\/)([^'"]+)['"]/g;
+                  let match;
+                  while ((match = importRegex.exec(content)) !== null) {
+                    let importPath = match[2];
+                    if (!importPath.endsWith('.tsx') && !importPath.endsWith('.ts')) {
+                      importPath += '.tsx';
+                    }
+                    if (match[1] === '@/') {
+                      importPath = 'frontend/' + importPath;
+                    }
+                    if (!foundPaths.has(importPath)) {
+                      const importExists = await fileExists(importPath);
+                      if (importExists) {
+                        const importContent = await readFileContent(importPath);
+                        if (importContent) {
+                          existingFilesContext.push({ path: importPath, content: importContent, action: 'REFERENCE' });
+                          console.log(`📄 [关联] ${importPath}`);
+                        }
+                      }
+                    }
+                  }
+                }
+              } else {
+                newFilePaths.push(path);
+                console.log(`🆕 [新建] ${path}`);
+              }
+            }
 
-            console.log("🤖 正在编写前端代码 (OpenRouter AI)...");
+            // 4. 读取关键上下文文件
+            const criticalFiles = ['frontend/app/layout.tsx', 'frontend/app/globals.css'];
+            for (const path of criticalFiles) {
+              if (!existingFilesContext.find(f => f.path === path)) {
+                const content = await readFileContent(path);
+                if (content) {
+                  existingFilesContext.push({ path, content, action: 'REFERENCE' });
+                }
+              }
+            }
+
+            // 读取 package.json
+            let packageJsonContent = "{}";
+            const pkgPath = await fileExists('frontend/package.json') ? 'frontend/package.json' : 'package.json';
+            const pkgContent = await readFileContent(pkgPath);
+            if (pkgContent) packageJsonContent = pkgContent;
+
+            // 5. 构建结构化 Prompt
+            const existingFilesStr = existingFilesContext.map(f => 
+              '### ' + f.action + ': ' + f.path + '\n```\n' + f.content + '\n```'
+            ).join('\n\n');
+
+            const newFilesList = newFilePaths.length > 0 ? newFilePaths.map(p => '- ' + p).join('\n') : '无';
+            const prompt = '你是一名 Next.js 前端专家，负责根据需求精准修改或创建代码。\n\n' +
+              '【项目结构规范】\n' +
+              '- 页面文件: frontend/app/[route]/page.tsx\n' +
+              '- 布局文件: frontend/app/[route]/layout.tsx\n' +
+              '- 通用组件: frontend/components/ui/\n' +
+              '- 业务组件: frontend/components/features/\n' +
+              '- Hooks: frontend/hooks/\n' +
+              '- 工具函数: frontend/lib/utils/\n' +
+              '- 类型定义: frontend/types/\n\n' +
+              '【当前目录结构】\n' +
+              projectTree + '\n\n' +
+              '【现有文件内容】\n' +
+              '以下文件已存在于项目中：\n' +
+              existingFilesStr + '\n\n' +
+              '【待创建文件路径】\n' +
+              '以下路径被提及但不存在，需要新建：\n' +
+              newFilesList + '\n\n' +
+              '【package.json】\n' +
+              packageJsonContent + '\n\n' +
+              '【需求】\n' +
+              '标题：' + process.env.ISSUE_TITLE + '\n' +
+              '描述：' + contextBody + '\n' +
+              '讨论：' + discussionHistory + '\n\n' +
+              '【操作规则】\n' +
+              '1. **MODIFY（修改现有文件）**：\n' +
+              '   - 基于现有代码增量修改\n' +
+              '   - 保留所有与本次需求无关的代码\n' +
+              '   - 保留所有现有 import 语句\n' +
+              '   - 保留所有现有函数和组件\n' +
+              '   - 只添加或修改需求相关的部分\n' +
+              '   - 输出完整的可运行代码\n\n' +
+              '2. **CREATE（创建新文件）**：\n' +
+              '   - 只有在文件不存在时才能创建\n' +
+              '   - 页面必须放在 frontend/app/[route]/page.tsx\n' +
+              '   - 组件必须放在 frontend/components/ 下\n' +
+              '   - 检查是否有可复用的现有组件\n\n' +
+              '3. **禁止操作**：\n' +
+              '   - 禁止删除现有代码\n' +
+              '   - 禁止重写已存在的文件（只能修改）\n' +
+              '   - 禁止在 app/ 目录创建非页面组件\n' +
+              '   - 禁止创建与现有组件功能重复的新组件\n\n' +
+              '【输出格式】\n' +
+              '每个文件使用以下格式，必须标明操作类型：\n\n' +
+              '### MODIFY: frontend/app/xxx/page.tsx\n' +
+              '```tsx\n' +
+              '(完整的修改后代码)\n' +
+              '```\n\n' +
+              '### CREATE: frontend/components/features/xxx.tsx\n' +
+              '```tsx\n' +
+              '(新文件的完整代码)\n' +
+              '```\n\n' +
+              '如需新增依赖：\n' +
+              '### MODIFY: frontend/package.json\n' +
+              '```json\n' +
+              '(完整的 package.json)\n' +
+              '```';
+
+            console.log("🤖 调用 AI...");
 
             const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
               method: 'POST',
@@ -130,126 +279,214 @@ jobs:
                 'Content-Type': 'application/json'
               },
               body: JSON.stringify({
-                model: "anthropic/claude-3.5-sonnet",
-                messages: [{ role: "user", content: prompt }]
+                model: "anthropic/claude-sonnet-4-20250514",
+                messages: [{ role: "user", content: prompt }],
+                max_tokens: 16000
               })
             });
             
-            if (!aiRes.ok) throw new Error(`AI API Error: ${await aiRes.text()}`);
+            if (!aiRes.ok) {
+              const errText = await aiRes.text();
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: context.issue.number,
+                body: `❌ AI API 调用失败: ${errText.substring(0, 500)}`
+              });
+              throw new Error(`AI API Error: ${errText}`);
+            }
+            
             const aiData = await aiRes.json();
             const rawContent = aiData.choices[0].message.content;
 
-            // 5. 解析分隔符格式 (🔥 增强版清洗逻辑)
+            // 6. 解析 AI 输出
             console.log("📦 解析文件...");
             const files = [];
             const lines = rawContent.split('\n');
             let currentFile = null;
+            let currentAction = null;
             let currentContentLines = [];
+            let inCodeBlock = false;
 
-            // 辅助函数：清洗代码块标记
             const cleanContent = (linesArray) => {
-                let content = linesArray.join('\n').trim();
-                // 如果 AI 还是不听话加了 ```，我们暴力去除
-                if (content.startsWith('```')) {
-                    content = content.split('\n').slice(1).join('\n'); // 去头
-                }
-                if (content.endsWith('```')) {
-                     // 这里的逻辑要小心，防止去掉正常的代码。通常 AI 的 ``` 是独占一行的
-                     const tempLines = content.split('\n');
-                     if (tempLines[tempLines.length-1].trim().startsWith('```')) {
-                         content = tempLines.slice(0, -1).join('\n'); // 去尾
-                     }
-                }
-                return content.trim();
+              let content = linesArray.join('\n').trim();
+              // 移除代码块标记
+              content = content.replace(/^```[\w\-\.]*\s*$/gm, '');
+              content = content.replace(/^```\s*$/gm, '');
+              return content.trim();
             };
 
             for (const line of lines) {
-              if (line.trim().startsWith('### FILE:')) {
+              const modifyMatch = line.trim().match(/^###\s*MODIFY:\s*(.+)$/);
+              const createMatch = line.trim().match(/^###\s*CREATE:\s*(.+)$/);
+              const fileMatch = line.trim().match(/^###\s*FILE:\s*(.+)$/);
+              
+              if (modifyMatch || createMatch || fileMatch) {
                 if (currentFile) {
                   files.push({ 
                     path: currentFile, 
-                    content: cleanContent(currentContentLines)
+                    content: cleanContent(currentContentLines),
+                    action: currentAction 
                   });
                 }
-                currentFile = line.replace('### FILE:', '').trim();
+                currentFile = (modifyMatch || createMatch || fileMatch)[1].trim();
+                currentAction = modifyMatch ? 'MODIFY' : (createMatch ? 'CREATE' : 'UNKNOWN');
                 currentContentLines = [];
+                inCodeBlock = false;
               } else {
                 currentContentLines.push(line);
               }
             }
+            
             if (currentFile) {
               files.push({ 
                 path: currentFile, 
-                content: cleanContent(currentContentLines)
+                content: cleanContent(currentContentLines),
+                action: currentAction 
               });
             }
 
             if (files.length === 0) {
-              console.log("原始内容:", rawContent);
-              throw new Error("AI 未生成任何文件，可能是 Prompt 格式未被遵守");
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: context.issue.number,
+                body: `❌ AI 未生成有效的文件块，请检查需求描述是否清晰。`
+              });
+              throw new Error("解析失败：AI 未生成任何有效文件块");
             }
 
-            // 6. Git 提交
+            // 7. 验证和过滤文件
+            const validFiles = [];
+            const warnings = [];
+            
+            for (const file of files) {
+              // 跳过后端文件
+              if (file.path.endsWith('.go') || file.path.includes('backend/')) continue;
+              
+              // 验证路径
+              const pathErrors = validatePath(file.path);
+              if (pathErrors.length > 0) {
+                warnings.push(...pathErrors);
+              }
+              
+              // JSON 校验
+              if (file.path.endsWith('.json')) {
+                try { 
+                  JSON.parse(file.content); 
+                } catch (e) { 
+                  warnings.push(`JSON 语法错误: ${file.path}`);
+                  continue; 
+                }
+              }
+              
+              // 检查 CREATE 操作的文件是否已存在
+              if (file.action === 'CREATE') {
+                const exists = await fileExists(file.path);
+                if (exists) {
+                  warnings.push(`文件已存在，CREATE 操作改为 MODIFY: ${file.path}`);
+                  file.action = 'MODIFY';
+                }
+              }
+              
+              // 检查受保护文件
+              if (PROJECT_STRUCTURE.protectedFiles.includes(file.path) && file.action === 'CREATE') {
+                warnings.push(`受保护文件不能被覆盖创建: ${file.path}`);
+                file.action = 'MODIFY';
+              }
+              
+              // 内容不能为空
+              if (!file.content || file.content.trim().length === 0) {
+                warnings.push(`文件内容为空，跳过: ${file.path}`);
+                continue;
+              }
+              
+              validFiles.push(file);
+            }
+
+            // 8. 创建分支并写入文件
             const branchName = `zhangxiaohao/issue-${context.issue.number}`;
             const baseRef = await github.rest.git.getRef({ ...context.repo, ref: 'heads/main' });
             
-            try {
-                await github.rest.git.createRef({ 
-                    ...context.repo, 
-                    ref: `refs/heads/${branchName}`, 
-                    sha: baseRef.data.object.sha 
-                });
+            try { 
+              await github.rest.git.createRef({ 
+                ...context.repo, 
+                ref: `refs/heads/${branchName}`, 
+                sha: baseRef.data.object.sha 
+              }); 
             } catch (e) {
-                console.log("ℹ️ 分支已存在，直接更新...");
+              // 分支已存在，更新到最新 main
+              try {
+                await github.rest.git.updateRef({
+                  ...context.repo,
+                  ref: `heads/${branchName}`,
+                  sha: baseRef.data.object.sha,
+                  force: true
+                });
+              } catch (e2) {}
             }
 
-            for (const file of files) {
-              // 再次过滤后端文件
-              if (file.path.endsWith('.go') || file.path.includes('backend/')) {
-                  console.log(`⚠️ 跳过后端文件: ${file.path}`);
-                  continue;
-              }
-
-              console.log(`📝 写入文件: ${file.path}`);
+            const createdFiles = [];
+            const modifiedFiles = [];
+            
+            for (const file of validFiles) {
+              console.log(`📝 ${file.action}: ${file.path}`);
               
-              // 获取 sha 以便更新
               let sha;
               try {
                 const { data } = await github.rest.repos.getContent({ 
-                    ...context.repo, 
-                    path: file.path, 
-                    ref: branchName 
+                  ...context.repo, 
+                  path: file.path, 
+                  ref: branchName 
                 });
                 sha = data.sha;
               } catch (e) {} 
-
+              
               await github.rest.repos.createOrUpdateFileContents({
                 ...context.repo,
                 path: file.path,
-                message: `feat(fe): update ${file.path}`,
+                message: `${file.action === 'CREATE' ? 'feat' : 'refactor'}(fe): ${file.action.toLowerCase()} ${file.path.split('/').pop()}`,
                 content: Buffer.from(file.content).toString('base64'),
                 branch: branchName,
                 sha: sha
               });
+              
+              if (file.action === 'CREATE') {
+                createdFiles.push(file.path);
+              } else {
+                modifiedFiles.push(file.path);
+              }
             }
+
+            // 9. 创建 PR
+            let prBody = '### 📦 变更清单\n\n';
+            if (createdFiles.length > 0) {
+              prBody += '**新建文件：**\n' + createdFiles.map(f => '- `' + f + '`').join('\n') + '\n';
+            }
+            if (modifiedFiles.length > 0) {
+              prBody += '**修改文件：**\n' + modifiedFiles.map(f => '- `' + f + '`').join('\n') + '\n';
+            }
+            if (warnings.length > 0) {
+              prBody += '\n### ⚠️ 警告\n' + warnings.map(w => '- ' + w).join('\n');
+            }
+            prBody += '\n\n---\n指令: `/code-zhangxiaohao-agent`\nIssue: #' + context.issue.number;
 
             try {
               const pr = await github.rest.pulls.create({
                 ...context.repo,
-                title: `✨ [FE] ${process.env.ISSUE_TITLE}`,
+                title: `[FE] ${process.env.ISSUE_TITLE}`,
                 head: branchName,
                 base: 'main',
-                body: `🤖 **前端代码生成**\n\n指令: \`/code-zhangxiaohao-agent\`\n\n### 📦 交付清单：\n${files.map(f => `- \`${f.path}\``).join('\n')}\n\n注意：如果有 package.json 变动，请在本地运行 npm install。`
+                body: prBody
               });
+              
               await github.rest.issues.createComment({
                 ...context.repo,
                 issue_number: context.issue.number,
-                body: `✅ **代码已生成！**\nPR: ${pr.data.html_url}`
+                body: `PR: ${pr.data.html_url}\n\n新建: ${createdFiles.length} | 修改: ${modifiedFiles.length}${warnings.length > 0 ? `\n\n⚠️ ${warnings.length} 个警告，详见 PR` : ''}`
               });
-            } catch (e) {
+            } catch(e) {
               await github.rest.issues.createComment({
                 ...context.repo,
                 issue_number: context.issue.number,
-                body: `✅ **代码已更新到分支！**`
+                body: `分支已更新: \`${branchName}\`\n\n新建: ${createdFiles.length} | 修改: ${modifiedFiles.length}`
               });
             }
