@@ -3,6 +3,8 @@ name: Demand Analysis with Claude
 on:
   issues:
     types: [opened, labeled]  # 创建或后期加标签都触发
+    branches:   # 关键：忽略这些分支，就不会在 main 上触发
+      - claude-code/auto-coding/**
     if: |
       contains(github.event.issue.labels.*.name, '需求') &&
       contains(github.event.issue.labels.*.name, 'tech')
