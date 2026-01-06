@@ -3,14 +3,13 @@ name: PR Auto Review with Claude
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
-    branches:
-      - claude-code/auto-coding/**
 
-# ← 这里是关键！if 必须和 on: 对齐（2 个空格或 0 个空格，通常和 name/on/jobs 同级）
-if: contains(github.event.pull_request.labels.*.name, 'auto-review')
+
 
 jobs:
   review:
+    # ← 这里是关键！if 必须和 on: 对齐（2 个空格或 0 个空格，通常和 name/on/jobs 同级）
+    if: contains(github.event.pull_request.labels.*.name, 'auto-review')
     runs-on: ubuntu-latest
     permissions:
       contents: read
