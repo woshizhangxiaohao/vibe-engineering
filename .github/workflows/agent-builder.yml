@@ -257,12 +257,6 @@ jobs:
             // 收集触发评论内容（用于 ISSUE_COMMENTS 变量）
             const triggerCommentContent = triggerComment ? triggerComment.body : '';
             
-            // 检测是否是修复 bug 的场景
-            const isBugFix = triggerCommentContent && (
-              /修复|bug|fix|错误|问题|issue/i.test(triggerCommentContent) ||
-              /修复了|fixed|解决了/i.test(triggerCommentContent)
-            );
-            
             // 收集其他评论作为讨论历史（排除触发评论，用于向后兼容）
             const generalComments = comments.data
               .filter(c => !c.body.includes('/code-zhangxiaohao-agent'))
@@ -397,9 +391,33 @@ jobs:
             const newFilePaths = [];
             let foundPaths = new Set();
             
-            // 如果是修复 bug，直接读取当前分支中的所有前端文件，让大模型自己判断
-            if (isBugFix) {
-              console.log('📋 修复操作：读取当前分支中的前端文件，让大模型判断需要修改哪些文件');
+            // 统一逻辑：先从文本中识别文件路径，如果没有找到，则读取当前分支中的前端文件
+            const allTextSources = fullDiscussionText + '\n' + (parentSpec || '');
+            
+            // 多种路径格式匹配（支持 app/(main) 等路由组）
+            const pathPatterns = [
+              /(?:frontend|src)\/[\w\-\.\/\(\)]+\.(?:tsx|ts|css|json)/g,
+              /app\/[\w\-\.\/\(\)]+\.(?:tsx|ts)/g,
+              /components\/[\w\-\.\/]+\.(?:tsx|ts)/g,
+              /hooks\/[\w\-\.\/]+\.(?:tsx|ts)/g,
+              /lib\/[\w\-\.\/]+\.(?:tsx|ts)/g,
+              /types\/[\w\-\.\/]+\.(?:tsx|ts)/g
+            ];
+            
+            for (const pattern of pathPatterns) {
+              const matches = allTextSources.match(pattern) || [];
+              matches.forEach(p => {
+                let normalized = p;
+                if (!normalized.startsWith('frontend/') && !normalized.startsWith('src/')) {
+                  normalized = 'frontend/' + normalized;
+                }
+                foundPaths.add(normalized);
+              });
+            }
+            
+            // 如果从文本中没有找到文件路径，读取当前分支中的前端文件，让大模型自己判断
+            if (foundPaths.size === 0) {
+              console.log('📋 文本中没有找到文件路径，读取当前分支中的前端文件，让大模型判断需要修改哪些文件');
               
               try {
                 const branchRef = await github.rest.git.getRef({
@@ -437,31 +455,7 @@ jobs:
                 console.log(`⚠️ 读取分支文件列表失败: ${e.message}`);
               }
             } else {
-              // 非修复操作：从文本中识别文件路径
-              const allTextSources = fullDiscussionText + '\n' + (parentSpec || '');
-              
-              // 多种路径格式匹配（支持 app/(main) 等路由组）
-              const pathPatterns = [
-                /(?:frontend|src)\/[\w\-\.\/\(\)]+\.(?:tsx|ts|css|json)/g,
-                /app\/[\w\-\.\/\(\)]+\.(?:tsx|ts)/g,
-                /components\/[\w\-\.\/]+\.(?:tsx|ts)/g,
-                /hooks\/[\w\-\.\/]+\.(?:tsx|ts)/g,
-                /lib\/[\w\-\.\/]+\.(?:tsx|ts)/g,
-                /types\/[\w\-\.\/]+\.(?:tsx|ts)/g
-              ];
-              
-              for (const pattern of pathPatterns) {
-                const matches = allTextSources.match(pattern) || [];
-                matches.forEach(p => {
-                  let normalized = p;
-                  if (!normalized.startsWith('frontend/') && !normalized.startsWith('src/')) {
-                    normalized = 'frontend/' + normalized;
-                  }
-                  foundPaths.add(normalized);
-                });
-              }
-              
-              console.log(`📋 从父级规范和讨论中识别到 ${foundPaths.size} 个文件路径`);
+              console.log(`📋 从文本中识别到 ${foundPaths.size} 个文件路径`);
             }
             
             // 4. 从当前分支读取文件内容
@@ -477,34 +471,6 @@ jobs:
                 if (content) {
                   existingFilesContext.push({ path, content, action: existsInBranch ? 'MODIFY' : 'REFERENCE' });
                   console.log(`📄 [存在${existsInBranch ? '于当前分支' : '于main分支'}] ${path}`);
-                  
-                  // 修复 bug 时不自动发现关联文件，避免读取过多无关文件
-                  // 只在非修复操作时自动发现关联文件
-                  if (!isBugFix) {
-                    // 自动发现关联文件（import 语句）
-                    const importRegex = /from\s+['"](@\/|\.\.\/|\.\/)([^'"]+)['"]/g;
-                    let match;
-                    while ((match = importRegex.exec(content)) !== null) {
-                      let importPath = match[2];
-                      if (!importPath.endsWith('.tsx') && !importPath.endsWith('.ts')) {
-                        importPath += '.tsx';
-                      }
-                      if (match[1] === '@/') {
-                        importPath = 'frontend/' + importPath;
-                      }
-                      if (!foundPaths.has(importPath)) {
-                        const importExistsInBranch = await fileExistsInBranch(importPath, branchName);
-                        const importExistsInMain = importExistsInBranch ? false : await fileExists(importPath);
-                        if (importExistsInBranch || importExistsInMain) {
-                          const importContent = await readFileContent(importPath, importExistsInBranch ? branchName : null);
-                          if (importContent) {
-                            existingFilesContext.push({ path: importPath, content: importContent, action: 'REFERENCE' });
-                            console.log(`📄 [关联] ${importPath}`);
-                          }
-                        }
-                      }
-                    }
-                  }
                 }
               } else {
                 newFilePaths.push(path);
@@ -671,25 +637,6 @@ jobs:
                 '- 遵循目录结构规范\n\n';
             }
             
-            // 构建修复 Bug 提示
-            let bugFixNote = '';
-            if (isBugFix) {
-              bugFixNote = '\n\n【重要：修复 Bug 操作规则】\n' +
-                '本次操作是修复 Bug，以下文件是当前分支中的所有前端文件，你需要根据 Issue 标题和描述判断需要修改哪些文件。\n\n' +
-                '必须严格遵守以下规则：\n' +
-                '1. 仔细阅读 Issue 标题和描述，理解 bug 的具体问题\n' +
-                '2. 根据 Issue 描述判断哪些文件与 bug 相关，只修改这些文件\n' +
-                '3. 如果 Issue 描述中提到某个功能、组件或页面，只修改相关的文件，不要修改无关文件\n' +
-                '4. 禁止创建新文件（除非 Issue 或评论中明确要求创建）\n' +
-                '5. 只修改与 bug 直接相关的代码，不要重构或优化无关代码\n' +
-                '6. 必须基于现有文件内容进行增量修改，保留所有无关代码\n' +
-                '7. 如果只涉及一个文件的问题，就只修改那一个文件\n' +
-                '8. 不要因为"可能有用"而创建新组件或工具函数\n' +
-                '9. 不要修改现有文件的 import 语句（除非是修复 bug 必需的）\n' +
-                '10. 不要添加新的依赖或工具函数（除非明确需要）\n' +
-                '11. 优先修改最少的文件数量，能在一个文件中修复就不要修改多个文件\n' +
-                '12. 如果无法确定需要修改哪些文件，只修改最可能相关的 1-2 个文件\n\n';
-            }
             
             // 构建 prompt：如果存在模板文件则使用模板，否则使用默认 prompt
             let prompt = '';
@@ -703,8 +650,7 @@ jobs:
                 'PARENT_SPEC': parentSpecNote || '',
                 'STYLE_GUIDE': styleGuideNote || '',
                 'PACKAGE_JSON': packageJsonContent || '{}',
-                'EXISTING_FILES': existingFilesStr || '无现有文件需要修改',
-                'BUG_FIX_NOTE': bugFixNote || ''
+                'EXISTING_FILES': existingFilesStr || '无现有文件需要修改'
               };
               
               // 统一替换所有模板变量
@@ -982,11 +928,8 @@ jobs:
             const generateOperationSummary = () => {
               let summary = '';
               
-              if (isBugFix) {
-                summary += '本次操作：修复 Bug\n\n';
-              } else {
-                summary += '本次操作：代码实现\n\n';
-              }
+              // 操作类型由大模型根据 Issue 描述判断，这里统一显示
+              summary += '本次操作：代码实现\n\n';
               
               // 统计操作类型
               const createCount = createdFiles.length;
@@ -1035,14 +978,6 @@ jobs:
                   summary += `- \`${path}\`\n`;
                 });
                 summary += `\n`;
-              }
-              
-              // 如果是修复 bug，添加提示
-              if (isBugFix && modifyCount > 0) {
-                summary += `注意：本次为修复操作，请检查以下文件是否已正确修复问题：\n`;
-                validFiles.filter(f => f.action === 'MODIFY').forEach(file => {
-                  summary += `- \`${file.path}\`\n`;
-                });
               }
               
               return summary;
