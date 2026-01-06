@@ -1,31 +1,45 @@
-import { YouTubeUrlInfo } from "@/types/video";
+export interface YouTubeUrlInfo {
+  isValid: boolean;
+  videoId: string | null;
+  url: string;
+}
 
-const YOUTUBE_REGEX = /^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:\S+)?$/;
+const YOUTUBE_REGEX = /^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:[&?].*)?$/;
 
-export function validateYouTubeUrl(url: string): YouTubeUrlInfo {
-  const match = url.trim().match(YOUTUBE_REGEX);
+export function parseYouTubeUrl(url: string): YouTubeUrlInfo {
+  const trimmedUrl = url.trim();
+  
+  if (!trimmedUrl) {
+    return {
+      isValid: false,
+      videoId: null,
+      url: trimmedUrl,
+    };
+  }
+
+  const match = trimmedUrl.match(YOUTUBE_REGEX);
   
   if (!match) {
     return {
       isValid: false,
       videoId: null,
-      url: null,
+      url: trimmedUrl,
     };
   }
 
-  const videoId = match[1];
-  const normalizedUrl = `https://www.youtube.com/watch?v=${videoId}`;
-
   return {
     isValid: true,
-    videoId,
-    url: normalizedUrl,
+    videoId: match[1],
+    url: trimmedUrl,
   };
 }
 
 export function extractVideoId(url: string): string | null {
-  const info = validateYouTubeUrl(url);
-  return info.videoId;
+  return parseYouTubeUrl(url).videoId;
+}
+
+export function isValidYouTubeUrl(url: string): boolean {
+  return parseYouTubeUrl(url).isValid;
 }
 
 export function formatDuration(seconds: number): string {
@@ -36,6 +50,5 @@ export function formatDuration(seconds: number): string {
   if (hours > 0) {
     return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }
-
   return `${minutes}:${secs.toString().padStart(2, '0')}`;
 }
