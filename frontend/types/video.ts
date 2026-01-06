@@ -23,3 +23,12 @@ export interface YouTubeUrlInfo {
   videoId: string | null;
   url: string | null;
 }
+
+export interface NoteFormData {
+  title: string;
+  content: string;
+  videoURL?: string;
+  videoDuration?: number;
+  videoThumbnail?: string;
+  videoSource?: string;
+}
