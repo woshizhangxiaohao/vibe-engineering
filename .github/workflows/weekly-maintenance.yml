@@ -12,6 +12,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      id-token: write  # 添加 OIDC token 权限
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,9 +21,13 @@ jobs:
       - name: Run Claude Code Action
         uses: anthropics/claude-code-action@v1
         env:
+          # OpenRouter 集成配置（参考：https://openrouter.ai/docs/guides/guides/claude-code-integration）
           ANTHROPIC_BASE_URL: https://openrouter.ai/api
         with:
-          api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          # 使用 OpenRouter API key（文档要求使用 anthropic_api_key）
+          anthropic_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          # 使用 GitHub token 避免 OIDC token 获取失败
+          github_token: ${{ github.token }}
           track_progress: true
           prompt: |
             REPO: ${{ github.repository }}
@@ -33,4 +38,3 @@ jobs:
             3. 查看 90 天以上未处理的 Issue
             4. 检查代码中 TODO 注释
             5. 汇总所有发现，创建一个总结 Issue
-          allowed_tools: '["read", "bash", "github:create_issue"]'

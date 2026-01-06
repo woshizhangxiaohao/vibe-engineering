@@ -3,7 +3,6 @@ name: PR Auto Review with Claude
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
-    if: contains(github.event.pull_request.labels.*.name, 'claude-review')
 
 jobs:
   review:
@@ -12,20 +11,24 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      id-token: write # 添加 OIDC token 权限
     steps:
       - name: Checkout Testing Branch
         uses: actions/checkout@v6
         with:
-          ref: 'claude-code/auto-coding'
+          ref: "claude-code/auto-coding"
           fetch-depth: 0
 
       - name: Run Claude Code Action
         uses: anthropics/claude-code-action@v1
         env:
+          # OpenRouter 集成配置（参考：https://openrouter.ai/docs/guides/guides/claude-code-integration）
           ANTHROPIC_BASE_URL: https://openrouter.ai/api
         with:
-          api_key: ${{ secrets.OPENROUTER_API_KEY }}
-          model: anthropic/claude-sonnet-4.5
+          # 使用 OpenRouter API key（文档要求使用 anthropic_api_key）
+          anthropic_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          # 使用 GitHub token 避免 OIDC token 获取失败
+          github_token: ${{ github.token }}
           track_progress: true
           prompt: |
             REPO: ${{ github.repository }}
@@ -40,4 +43,3 @@ jobs:
             - 文档与注释是否齐全
 
             请使用内联评论指出具体问题，并在 PR 顶部发布结构化总结评论。
-          allowed_tools: '["github:inline_comment", "github:comment_on_pr"]'
