@@ -125,6 +125,7 @@ jobs:
             let contextBody = process.env.ISSUE_BODY;
             let parentSpec = '';
             let parentIssueNumber = null;
+            let parentImplementationPlan = null; // 父级前端实施方案
             const parentRegex = /(?:Parent|Ref|父任务|父级|父需求|关联父需求)[\s:：]+#(\d+)/i;
             const parentMatch = contextBody.match(parentRegex);
             if (parentMatch) {
@@ -143,12 +144,21 @@ jobs:
                   issue_number: parentId
                 });
                 
-                // 智能提取前端约束：按时间顺序处理，后面的评论优先级更高
+                // 智能提取前端约束和实施方案：按时间顺序处理，后面的评论优先级更高
                 if (parentComments.data.length > 0) {
                   // 按创建时间排序（最早的在前）
                   const sortedComments = parentComments.data.sort((a, b) => 
                     new Date(a.created_at) - new Date(b.created_at)
                   );
+                  
+                  // 识别前端实施方案的标记（🏗️ 前端实施方案）
+                  const implementationPlanMarkers = [
+                    /🏗️\s*前端实施方案/i,
+                    /🏗️\s*前端实施计划/i,
+                    /前端实施方案/i,
+                    /frontend implementation plan/i,
+                    /frontend implementation/i
+                  ];
                   
                   // 识别前端约束的标记模式（支持多种格式）
                   const constraintMarkers = [
@@ -161,9 +171,7 @@ jobs:
                     /## 前端约束/i,
                     /## 前端规范/i,
                     /### 前端约束/i,
-                    /### 前端规范/i,
-                    /前端实施方案/i,
-                    /frontend implementation/i
+                    /### 前端规范/i
                   ];
                   
                   // 识别约束更新/撤销标记
@@ -176,11 +184,16 @@ jobs:
                     /revoke constraint/i
                   ];
                   
-                  // 提取所有包含约束的评论
+                  // 提取前端实施方案和约束的评论
                   const constraintComments = [];
                   const generalComments = [];
                   
                   sortedComments.forEach(comment => {
+                    // 优先检查是否是前端实施方案
+                    const hasImplementationPlan = implementationPlanMarkers.some(marker => 
+                      marker.test(comment.body)
+                    );
+                    
                     const hasConstraint = constraintMarkers.some(marker => 
                       marker.test(comment.body)
                     );
@@ -189,7 +202,16 @@ jobs:
                       marker.test(comment.body)
                     );
                     
-                    if (hasConstraint || isUpdate) {
+                    if (hasImplementationPlan) {
+                      // 提取前端实施方案（取最新的）
+                      parentImplementationPlan = {
+                        body: comment.body,
+                        user: comment.user.login,
+                        createdAt: comment.created_at,
+                        url: comment.html_url
+                      };
+                      console.log(`📋 发现父级前端实施方案: ${comment.html_url}`);
+                    } else if (hasConstraint || isUpdate) {
                       constraintComments.push({
                         body: comment.body,
                         user: comment.user.login,
