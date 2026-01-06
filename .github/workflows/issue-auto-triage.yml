@@ -1,37 +1,43 @@
-name: Issue Auto Triage
+name: Issue Auto Triage with Claude
 
 on:
   issues:
     types: [opened, labeled]
-    branches:   # 关键：忽略这些分支，就不会在 main 上触发
-      - claude-code/auto-coding/**
-    if: contains(github.event.issue.labels.*.name, 'triage')
+    if: contains(github.event.issue.labels.*.name, 'claude-triage')
 
 jobs:
   triage:
-    if: contains(github.event.issue.labels.*.name, 'triage')
+    if: contains(github.event.issue.labels.*.name, 'claude-triage')
     runs-on: ubuntu-latest
     permissions:
       issues: write
+      contents: read
     steps:
+      - name: Checkout Testing Branch
+        uses: actions/checkout@v6
+        with:
+          ref: 'claude-code/auto-coding'
+          fetch-depth: 0
+
       - name: Run Claude Code Action
         uses: anthropics/claude-code-action@v1
         env:
           ANTHROPIC_BASE_URL: https://openrouter.ai/api
         with:
           api_key: ${{ secrets.OPENROUTER_API_KEY }}
-          model: claude-3-5-sonnet-20241022
+          model: anthropic/claude-sonnet-4.5
+          track_progress: true
           prompt: |
             REPO: ${{ github.repository }}
             ISSUE NUMBER: ${{ github.event.issue.number }}
             TITLE: ${{ github.event.issue.title }}
             BODY: ${{ github.event.issue.body }}
 
-            分析这个新 Issue：
-            1. 判断类型：bug / feature / question / duplicate
+            请分析这个新 Issue，并执行以下操作：
+            1. 判断类型：bug / feature / question / maintenance / duplicate
             2. 评估优先级：critical / high / medium / low
-            3. 建议标签
-            4. 检查是否重复现有 Issue
+            3. 推荐合适的标签（如 bug、enhancement、question 等）
+            4. 如果发现重复 Issue，请评论指出原 Issue 链接
 
-            使用 gh 命令自动添加合适标签，如果是重复请评论指出原 Issue。
-          allowed_tools: '["github:add_label", "github:comment_on_issue", "github:search_issues"]'
+            直接使用工具自动添加推荐标签，并在 Issue 上评论说明理由。
+          allowed_tools: '["github:add_label", "github:remove_label", "github:comment_on_issue", "github:search_issues"]'
