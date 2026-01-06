@@ -1,0 +1,36 @@
+name: Weekly Maintenance
+
+on:
+  schedule:
+    - cron: '0 8 * * MON'  # 每周一早上 8 点（UTC）
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code Action
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+        with:
+          api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+
+            执行每周仓库维护：
+            1. 检查依赖是否过时
+            2. 扫描安全漏洞
+            3. 查看 90 天以上未处理的 Issue
+            4. 检查代码中 TODO 注释
+            5. 汇总所有发现，创建一个总结 Issue
+          allowed_tools: '["read", "bash", "github:create_issue"]'
