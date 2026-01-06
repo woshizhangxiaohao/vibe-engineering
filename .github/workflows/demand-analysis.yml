@@ -3,19 +3,21 @@ name: Demand Analysis with Claude
 on:
   issues:
     types: [opened, labeled]  # 创建或后期加标签都触发
-    branches:   # 关键：忽略这些分支，就不会在 main 上触发
-      - claude-code/auto-coding/**
     if: contains(github.event.issue.labels.*.name, 'claude-tech')
 
 jobs:
   analyze:
+    if: contains(github.event.issue.labels.*.name, 'claude-tech')
     runs-on: ubuntu-latest
     permissions:
       issues: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Testing Branch
+        uses: actions/checkout@v6
         with:
+          # 【关键】强制检出你的测试分支，而不是默认的 main
+          ref: 'claude-code/auto-coding'
           fetch-depth: 0
 
       - name: Run Claude Code Action
@@ -24,7 +26,7 @@ jobs:
           ANTHROPIC_BASE_URL: https://openrouter.ai/api
         with:
           api_key: ${{ secrets.OPENROUTER_API_KEY }}
-          model: claude-3-5-sonnet-20241022
+          model: anthropic/claude-sonnet-4.5
           track_progress: true
           prompt: |
             REPO: ${{ github.repository }}
