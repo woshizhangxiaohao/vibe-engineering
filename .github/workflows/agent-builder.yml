@@ -146,20 +146,24 @@ jobs:
             ];
             
             // 识别分支策略的标记
+            // "基于"表示从指定分支读取文件，但写入到当前分支
+            // "使用"、"在"表示直接在指定分支上工作
             const branchMarkers = [
-              /使用分支[\s:：]+([^\s\n]+)/i,
-              /在分支[\s:：]+([^\s\n]+)/i,
-              /分支[\s:：]+([^\s\n]+)/i,
-              /branch[\s:：]+([^\s\n]+)/i,
-              /使用[\s:：]+([^\s\n]+)\s*分支/i,
-              /基于[\s:：]+([^\s\n]+)\s*分支/i,
-              /zhangxiaohao\/issue-(\d+)/i
+              { pattern: /基于[\s:：]+([^\s\n]+)\s*分支/i, type: 'base' }, // 基于某某分支
+              { pattern: /基于[\s:：]+([^\s\n]+)/i, type: 'base' }, // 基于某某
+              { pattern: /使用分支[\s:：]+([^\s\n]+)/i, type: 'work' }, // 使用分支
+              { pattern: /在分支[\s:：]+([^\s\n]+)/i, type: 'work' }, // 在分支
+              { pattern: /分支[\s:：]+([^\s\n]+)/i, type: 'work' }, // 分支
+              { pattern: /branch[\s:：]+([^\s\n]+)/i, type: 'work' }, // branch
+              { pattern: /使用[\s:：]+([^\s\n]+)\s*分支/i, type: 'work' }, // 使用某某分支
+              { pattern: /zhangxiaohao\/issue-(\d+)/i, type: 'work' } // zhangxiaohao/issue-xxx
             ];
             
             // 从当前 issue 的评论中提取前端规范、前端方案和分支信息
             let frontendSpec = '';
             let frontendPlan = '';
-            let branchFromComment = null; // 从评论中提取的分支信息
+            let branchFromComment = null; // 从评论中提取的工作分支（写入目标）
+            let baseBranchFromComment = null; // 从评论中提取的基础分支（读取源）
             const referencedContent = []; // 存储引用的内容
             
             // 找到触发评论（包含 /code-zhangxiaohao-agent 的评论）
@@ -225,10 +229,12 @@ jobs:
               
               // 检查是否包含分支信息
               let branchMatch = null;
+              let branchMatchType = null;
               for (const marker of branchMarkers) {
-                const match = triggerComment.body.match(marker);
+                const match = triggerComment.body.match(marker.pattern);
                 if (match) {
                   branchMatch = match;
+                  branchMatchType = marker.type;
                   break;
                 }
               }
@@ -243,14 +249,24 @@ jobs:
               }
               if (branchMatch) {
                 const branchValue = branchMatch[1].trim();
+                let normalizedBranch = '';
                 if (/^\d+$/.test(branchValue)) {
-                  branchFromComment = `zhangxiaohao/issue-${branchValue}`;
+                  normalizedBranch = `zhangxiaohao/issue-${branchValue}`;
                 } else if (branchValue.startsWith('zhangxiaohao/issue-')) {
-                  branchFromComment = branchValue;
+                  normalizedBranch = branchValue;
                 } else {
-                  branchFromComment = branchValue;
+                  normalizedBranch = branchValue;
                 }
-                console.log(`🔗 从评论中发现分支信息: ${branchFromComment} (${triggerComment.html_url})`);
+                
+                if (branchMatchType === 'base') {
+                  // "基于"分支：从指定分支读取文件，但写入到当前分支
+                  baseBranchFromComment = normalizedBranch;
+                  console.log(`🔗 从评论中发现基础分支（读取源）: ${baseBranchFromComment} (${triggerComment.html_url})`);
+                } else {
+                  // "使用"分支：直接在指定分支上工作
+                  branchFromComment = normalizedBranch;
+                  console.log(`🔗 从评论中发现工作分支（写入目标）: ${branchFromComment} (${triggerComment.html_url})`);
+                }
               }
             }
             
@@ -357,17 +373,29 @@ jobs:
               }
             }
 
-            // 5.5. 确定分支名（优先级：评论中的分支信息 > 当前issue分支）
-            // 需要先确定分支，才能从正确的分支读取文件内容
-            let branchName = `zhangxiaohao/issue-${context.issue.number}`;
+            // 5.5. 确定分支名
+            // 读取分支：如果指定了基础分支，从基础分支读取；否则从工作分支读取
+            // 写入分支：如果指定了工作分支，写入到工作分支；否则写入到当前 issue 分支
+            let readBranch = null; // 读取文件的分支
+            let writeBranch = `zhangxiaohao/issue-${context.issue.number}`; // 写入文件的分支
             
-            // 优先级1：如果评论中指定了分支，使用评论中的分支
+            // 确定写入分支
             if (branchFromComment) {
-              branchName = branchFromComment;
-              console.log(`🔗 使用评论中指定的分支: ${branchName}`);
+              writeBranch = branchFromComment;
+              console.log(`🔗 工作分支（写入目标）: ${writeBranch}`);
             } else {
-              // 优先级2：使用当前issue的分支（默认）
-              console.log(`🔗 使用当前issue的分支: ${branchName}`);
+              console.log(`🔗 工作分支（写入目标）: ${writeBranch} (当前issue分支)`);
+            }
+            
+            // 确定读取分支
+            if (baseBranchFromComment) {
+              // 如果指定了基础分支，从基础分支读取文件
+              readBranch = baseBranchFromComment;
+              console.log(`📖 基础分支（读取源）: ${readBranch}`);
+            } else {
+              // 否则从工作分支读取文件
+              readBranch = writeBranch;
+              console.log(`📖 读取分支: ${readBranch} (与工作分支相同)`);
             }
             
             // 检查文件在当前分支是否存在
@@ -422,7 +450,7 @@ jobs:
               try {
                 const branchRef = await github.rest.git.getRef({
                   ...context.repo,
-                  ref: `heads/${branchName}`
+                  ref: `heads/${readBranch}`
                 });
                 const commit = await github.rest.git.getCommit({
                   ...context.repo,
@@ -458,19 +486,21 @@ jobs:
               console.log(`📋 从文本中识别到 ${foundPaths.size} 个文件路径`);
             }
             
-            // 4. 从当前分支读取文件内容
+            // 4. 从读取分支读取文件内容
             for (const path of foundPaths) {
-              // 先检查文件在当前分支是否存在
-              const existsInBranch = await fileExistsInBranch(path, branchName);
-              // 如果当前分支不存在，检查 main 分支是否存在（用于新建文件的情况）
-              const existsInMain = existsInBranch ? false : await fileExists(path);
+              // 先检查文件在读取分支是否存在
+              const existsInReadBranch = await fileExistsInBranch(path, readBranch);
+              // 如果读取分支不存在，检查 main 分支是否存在（用于新建文件的情况）
+              const existsInMain = existsInReadBranch ? false : await fileExists(path);
               
-              if (existsInBranch || existsInMain) {
-                // 优先从当前分支读取，如果当前分支不存在则从 main 分支读取
-                const content = await readFileContent(path, existsInBranch ? branchName : null);
+              if (existsInReadBranch || existsInMain) {
+                // 优先从读取分支读取，如果读取分支不存在则从 main 分支读取
+                const content = await readFileContent(path, existsInReadBranch ? readBranch : null);
                 if (content) {
-                  existingFilesContext.push({ path, content, action: existsInBranch ? 'MODIFY' : 'REFERENCE' });
-                  console.log(`📄 [存在${existsInBranch ? '于当前分支' : '于main分支'}] ${path}`);
+                  // 如果文件在写入分支也存在，标记为 MODIFY；否则标记为 REFERENCE
+                  const existsInWriteBranch = await fileExistsInBranch(path, writeBranch);
+                  existingFilesContext.push({ path, content, action: existsInWriteBranch ? 'MODIFY' : 'REFERENCE' });
+                  console.log(`📄 [存在${existsInReadBranch ? '于读取分支' : '于main分支'}] ${path}`);
                 }
               } else {
                 newFilePaths.push(path);
@@ -478,13 +508,13 @@ jobs:
               }
             }
 
-            // 读取关键上下文文件（从当前分支）
+            // 读取关键上下文文件（从读取分支）
             const criticalFiles = ['frontend/app/layout.tsx', 'frontend/app/globals.css'];
             for (const path of criticalFiles) {
               if (!existingFilesContext.find(f => f.path === path)) {
-                const content = await readFileContent(path, branchName);
+                const content = await readFileContent(path, readBranch);
                 if (!content) {
-                  // 如果当前分支没有，尝试从 main 分支读取
+                  // 如果读取分支没有，尝试从 main 分支读取
                   const mainContent = await readFileContent(path);
                   if (mainContent) {
                     existingFilesContext.push({ path, content: mainContent, action: 'REFERENCE' });
@@ -495,14 +525,14 @@ jobs:
               }
             }
 
-            // 读取 package.json（从当前分支）
+            // 读取 package.json（从读取分支）
             let packageJsonContent = "{}";
-            const pkgPath = await fileExists('frontend/package.json', branchName) ? 'frontend/package.json' : 'package.json';
-            const pkgContent = await readFileContent(pkgPath, branchName);
+            const pkgPath = await fileExists('frontend/package.json', readBranch) ? 'frontend/package.json' : 'package.json';
+            const pkgContent = await readFileContent(pkgPath, readBranch);
             if (pkgContent) {
               packageJsonContent = pkgContent;
             } else {
-              // 如果当前分支没有，尝试从 main 分支读取
+              // 如果读取分支没有，尝试从 main 分支读取
               const mainPkgContent = await readFileContent(pkgPath);
               if (mainPkgContent) packageJsonContent = mainPkgContent;
             }
@@ -558,14 +588,14 @@ jobs:
                 if (!foundPath.startsWith('frontend/')) {
                   foundPath = 'frontend/' + foundPath;
                 }
-                // 检查页面是否在当前分支已存在（而不是 main 分支）
-                const pageExists = await fileExistsInBranch(foundPath, branchName);
+                // 检查页面是否在写入分支已存在（而不是 main 分支）
+                const pageExists = await fileExistsInBranch(foundPath, writeBranch);
                 if (!pageExists) {
                   requiredPagePath = foundPath;
-                  console.log(`📄 检测到需要创建的页面: ${requiredPagePath} (在当前分支 ${branchName} 不存在)`);
+                  console.log(`📄 检测到需要创建的页面: ${requiredPagePath} (在写入分支 ${writeBranch} 不存在)`);
                   break;
                 } else {
-                  console.log(`📄 页面已存在: ${foundPath} (在当前分支 ${branchName})`);
+                  console.log(`📄 页面已存在: ${foundPath} (在写入分支 ${writeBranch})`);
                 }
               }
             }
@@ -798,11 +828,11 @@ jobs:
                 }
               }
               
-              // 检查 CREATE 操作的文件是否在当前分支已存在（而不是 main 分支）
+              // 检查 CREATE 操作的文件是否在写入分支已存在（而不是 main 分支）
               if (file.action === 'CREATE') {
-                const exists = await fileExistsInBranch(file.path, branchName);
+                const exists = await fileExistsInBranch(file.path, writeBranch);
                 if (exists) {
-                  warnings.push(`文件在当前分支已存在，CREATE 操作改为 MODIFY: ${file.path}`);
+                  warnings.push(`文件在写入分支已存在，CREATE 操作改为 MODIFY: ${file.path}`);
                   file.action = 'MODIFY';
                 }
               }
@@ -822,24 +852,34 @@ jobs:
               validFiles.push(file);
             }
 
-            // 8. 创建或获取分支并写入文件（分支名已在第5.5步确定）
-            const baseRef = await github.rest.git.getRef({ ...context.repo, ref: 'heads/main' });
+            // 8. 创建或获取写入分支并写入文件
+            // 如果指定了基础分支，从基础分支创建写入分支；否则从 main 分支创建
+            let baseRef;
+            if (baseBranchFromComment) {
+              // 从基础分支创建写入分支
+              const baseBranchRef = await github.rest.git.getRef({ ...context.repo, ref: `heads/${baseBranchFromComment}` });
+              baseRef = { data: { object: { sha: baseBranchRef.data.object.sha } } };
+              console.log(`📖 基于分支 ${baseBranchFromComment} 创建写入分支 ${writeBranch}`);
+            } else {
+              // 从 main 分支创建写入分支
+              baseRef = await github.rest.git.getRef({ ...context.repo, ref: 'heads/main' });
+            }
             
-            // 检查分支是否已存在
+            // 检查写入分支是否已存在
             let branchExists = false;
             try {
-              await github.rest.git.getRef({ ...context.repo, ref: `heads/${branchName}` });
+              await github.rest.git.getRef({ ...context.repo, ref: `heads/${writeBranch}` });
               branchExists = true;
-              console.log(`分支已存在: ${branchName}`);
+              console.log(`分支已存在: ${writeBranch}`);
             } catch (e) {
               // 分支不存在，创建新分支
               try {
                 await github.rest.git.createRef({ 
                   ...context.repo, 
-                  ref: `refs/heads/${branchName}`, 
+                  ref: `refs/heads/${writeBranch}`, 
                   sha: baseRef.data.object.sha 
                 });
-                console.log(`创建新分支: ${branchName}`);
+                console.log(`创建新分支: ${writeBranch}`);
               } catch (e2) {
                 console.log(`创建分支失败: ${e2.message}`);
               }
@@ -850,16 +890,16 @@ jobs:
             
             // 批量提交：使用 Git Tree API 一次性提交所有文件
             if (validFiles.length > 0) {
-              // 获取当前分支的最新 commit SHA
+              // 获取写入分支的最新 commit SHA
               let baseSha;
               try {
                 const branchRef = await github.rest.git.getRef({ 
                   ...context.repo, 
-                  ref: `heads/${branchName}` 
+                  ref: `heads/${writeBranch}` 
                 });
                 baseSha = branchRef.data.object.sha;
               } catch (e) {
-                // 如果分支不存在，使用 main 分支的 SHA
+                // 如果分支不存在，使用基础分支或 main 分支的 SHA
                 baseSha = baseRef.data.object.sha;
               }
               
@@ -914,10 +954,10 @@ jobs:
                 parents: [baseSha]
               });
               
-              // 更新分支引用
+              // 更新写入分支引用
               await github.rest.git.updateRef({
                 ...context.repo,
-                ref: `heads/${branchName}`,
+                ref: `heads/${writeBranch}`,
                 sha: newCommit.data.sha
               });
               
@@ -1003,14 +1043,16 @@ jobs:
               const pr = await github.rest.pulls.create({
                 ...context.repo,
                 title: `[FE] ${process.env.ISSUE_TITLE}`,
-                head: branchName,
-                base: 'main',
+                head: writeBranch,
+                base: baseBranchFromComment || 'main',
                 body: prBody
               });
               
-              const commentBody = `PR: ${pr.data.html_url}\n\n` +
-                operationSummary +
-                (warnings.length > 0 ? `\n警告: ${warnings.length} 个，详见 PR\n` : '');
+              let commentBody = `PR: ${pr.data.html_url}\n\n`;
+              if (baseBranchFromComment) {
+                commentBody += `基于分支: ${baseBranchFromComment}\n`;
+              }
+              commentBody += operationSummary + (warnings.length > 0 ? `\n警告: ${warnings.length} 个，详见 PR\n` : '');
               
               await github.rest.issues.createComment({
                 ...context.repo,
@@ -1018,9 +1060,11 @@ jobs:
                 body: commentBody
               });
             } catch(e) {
-              const commentBody = `分支已更新: \`${branchName}\`\n\n` +
-                operationSummary +
-                (warnings.length > 0 ? `\n警告: ${warnings.length} 个\n` : '');
+              let commentBody = `分支已更新: \`${writeBranch}\`\n\n`;
+              if (baseBranchFromComment) {
+                commentBody += `基于分支: ${baseBranchFromComment}\n`;
+              }
+              commentBody += operationSummary + (warnings.length > 0 ? `\n警告: ${warnings.length} 个\n` : '');
               
               await github.rest.issues.createComment({
                 ...context.repo,
