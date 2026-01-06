@@ -149,14 +149,15 @@ jobs:
             // "基于"表示从指定分支读取文件，但写入到当前分支
             // "使用"、"在"表示直接在指定分支上工作
             const branchMarkers = [
+              { pattern: /基于分支[\s:：]+([^\s\n]+)/i, type: 'base' }, // 基于分支xxx
               { pattern: /基于[\s:：]+([^\s\n]+)\s*分支/i, type: 'base' }, // 基于某某分支
               { pattern: /基于[\s:：]+([^\s\n]+)/i, type: 'base' }, // 基于某某
               { pattern: /使用分支[\s:：]+([^\s\n]+)/i, type: 'work' }, // 使用分支
               { pattern: /在分支[\s:：]+([^\s\n]+)/i, type: 'work' }, // 在分支
-              { pattern: /分支[\s:：]+([^\s\n]+)/i, type: 'work' }, // 分支
-              { pattern: /branch[\s:：]+([^\s\n]+)/i, type: 'work' }, // branch
               { pattern: /使用[\s:：]+([^\s\n]+)\s*分支/i, type: 'work' }, // 使用某某分支
-              { pattern: /zhangxiaohao\/issue-(\d+)/i, type: 'work' } // zhangxiaohao/issue-xxx
+              { pattern: /分支[\s:：]+([^\s\n]+)/i, type: 'base' }, // 分支xxx（默认作为"基于"处理）
+              { pattern: /branch[\s:：]+([^\s\n]+)/i, type: 'base' }, // branch xxx（默认作为"基于"处理）
+              { pattern: /zhangxiaohao\/issue-(\d+)/i, type: 'base' } // zhangxiaohao/issue-xxx（默认作为"基于"处理）
             ];
             
             // 从当前 issue 的评论中提取前端规范、前端方案和分支信息
@@ -248,7 +249,11 @@ jobs:
                 console.log(`📋 发现前端方案: ${triggerComment.html_url}`);
               }
               if (branchMatch) {
-                const branchValue = branchMatch[1].trim();
+                let branchValue = branchMatch[1].trim();
+                
+                // 去掉远程仓库前缀（如 origin/, remotes/origin/ 等）
+                branchValue = branchValue.replace(/^(origin|remotes\/origin|remotes)\//, '');
+                
                 let normalizedBranch = '';
                 if (/^\d+$/.test(branchValue)) {
                   normalizedBranch = `zhangxiaohao/issue-${branchValue}`;
