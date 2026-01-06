@@ -73,27 +73,35 @@ jobs:
               return null;
             };
 
-            // 验证路径是否符合项目规范
-            const validatePath = (path) => {
+            // 验证路径是否符合项目规范（支持父级规范覆盖）
+            const validatePath = (path, parentSpecText = '') => {
               const errors = [];
+              
+              // 检查路径是否在父级规范中被明确提及（如果是，则允许）
+              const isInParentSpec = parentSpecText && (
+                parentSpecText.includes(path) || 
+                parentSpecText.includes(path.replace('frontend/', ''))
+              );
               
               // 页面文件必须在 app/ 目录
               if (path.includes('/page.tsx') && !path.startsWith('frontend/app/')) {
-                errors.push(`页面文件必须在 frontend/app/ 目录: ${path}`);
+                if (!isInParentSpec) {
+                  errors.push(`页面文件必须在 frontend/app/ 目录: ${path}`);
+                }
               }
               
               // 组件不能直接放在 app/ 目录（除了 page.tsx, layout.tsx 等）
               const appOnlyFiles = ['page.tsx', 'layout.tsx', 'loading.tsx', 'error.tsx', 'not-found.tsx', 'template.tsx'];
               if (path.startsWith('frontend/app/') && path.endsWith('.tsx')) {
                 const fileName = path.split('/').pop();
-                if (!appOnlyFiles.includes(fileName)) {
+                if (!appOnlyFiles.includes(fileName) && !isInParentSpec) {
                   errors.push(`组件不应放在 app/ 目录，应放在 components/: ${path}`);
                 }
               }
               
               // UI 组件应放在 components/ui/
               if (path.includes('Button') || path.includes('Input') || path.includes('Modal') || path.includes('Dialog')) {
-                if (!path.includes('components/ui/') && !path.includes('components/features/')) {
+                if (!path.includes('components/ui/') && !path.includes('components/features/') && !isInParentSpec) {
                   errors.push(`UI 组件应放在 components/ui/ 或 components/features/: ${path}`);
                 }
               }
@@ -113,32 +121,61 @@ jobs:
               .map(c => `[User: ${c.user.login}]:\n${c.body}`)
               .join("\n\n---\n\n");
 
-            // 2. 读取父级规范
+            // 2. 读取父级规范（包含评论）
             let contextBody = process.env.ISSUE_BODY;
+            let parentSpec = '';
             const parentRegex = /(?:Parent|Ref|父任务|父级|父需求|关联父需求)[\s:：]+#(\d+)/i;
             const parentMatch = contextBody.match(parentRegex);
             if (parentMatch) {
               try {
-                const p = await github.rest.issues.get({ ...context.repo, issue_number: parentMatch[1] });
-                contextBody += `\n\n--- [父级规范] ---\n${p.data.body}`;
-              } catch(e) {}
+                const parentId = parentMatch[1];
+                console.log(`🔗 读取父级规范: #${parentId}`);
+                
+                // 读取父级 issue body
+                const p = await github.rest.issues.get({ ...context.repo, issue_number: parentId });
+                parentSpec = p.data.body;
+                
+                // 读取父级 issue 的评论（可能包含架构师的设计方案）
+                const parentComments = await github.rest.issues.listComments({
+                  ...context.repo,
+                  issue_number: parentId
+                });
+                
+                // 合并父级规范和评论
+                if (parentComments.data.length > 0) {
+                  const parentCommentsText = parentComments.data
+                    .map(c => `[${c.user.login}]:\n${c.body}`)
+                    .join("\n\n---\n\n");
+                  parentSpec += '\n\n--- [父级 Issue 评论] ---\n' + parentCommentsText;
+                }
+                
+                contextBody += '\n\n--- [父级规范 - 必须严格遵守] ---\n' + parentSpec;
+                console.log(`✅ 已读取父级规范，长度: ${parentSpec.length} 字符`);
+              } catch(e) {
+                console.log(`⚠️ 读取父级规范失败: ${e.message}`);
+              }
             }
 
             // 3. 智能文件路径识别（增强版）
             console.log("🔍 扫描相关文件...");
             
-            // 多种路径格式匹配
+            // 合并所有文本来源（包括父级规范）
+            const allTextSources = fullDiscussionText + '\n' + (parentSpec || '');
+            
+            // 多种路径格式匹配（支持 app/(main) 等路由组）
             const pathPatterns = [
-              /(?:frontend|src)\/[\w\-\.\/]+\.(?:tsx|ts|css|json)/g,
-              /app\/[\w\-\.\/]+\.(?:tsx|ts)/g,
+              /(?:frontend|src)\/[\w\-\.\/\(\)]+\.(?:tsx|ts|css|json)/g,
+              /app\/[\w\-\.\/\(\)]+\.(?:tsx|ts)/g,
               /components\/[\w\-\.\/]+\.(?:tsx|ts)/g,
               /hooks\/[\w\-\.\/]+\.(?:tsx|ts)/g,
-              /lib\/[\w\-\.\/]+\.(?:tsx|ts)/g
+              /lib\/[\w\-\.\/]+\.(?:tsx|ts)/g,
+              /types\/[\w\-\.\/]+\.(?:tsx|ts)/g
             ];
             
             let foundPaths = new Set();
             for (const pattern of pathPatterns) {
-              const matches = fullDiscussionText.match(pattern) || [];
+              // 从所有文本来源中匹配
+              const matches = allTextSources.match(pattern) || [];
               matches.forEach(p => {
                 // 标准化路径
                 let normalized = p;
@@ -148,6 +185,8 @@ jobs:
                 foundPaths.add(normalized);
               });
             }
+            
+            console.log(`📋 从父级规范和讨论中识别到 ${foundPaths.size} 个文件路径`);
             
             // 收集现有文件和新文件
             const existingFilesContext = [];
@@ -213,16 +252,28 @@ jobs:
             ).join('\n\n');
 
             const newFilesList = newFilePaths.length > 0 ? newFilePaths.map(p => '- ' + p).join('\n') : '无';
+            
+            // 构建父级规范提示
+            let parentSpecNote = '';
+            if (parentSpec) {
+              parentSpecNote = '\n\n【⚠️ 父级规范 - 最高优先级】\n' +
+                '以下内容来自父级 Issue，**必须严格遵守**，特别是目录结构和文件路径：\n' +
+                '如果父级规范中明确指定了目录结构（如 app/(main)/video/page.tsx），\n' +
+                '**必须严格按照父级规范执行，不要使用默认的 app/[route]/page.tsx 格式**。\n' +
+                '父级规范优先级高于项目结构规范。\n';
+            }
+            
             const prompt = '你是一名 Next.js 前端专家，负责根据需求精准修改或创建代码。\n\n' +
-              '【项目结构规范】\n' +
+              '【项目结构规范（默认）】\n' +
               '- 页面文件: frontend/app/[route]/page.tsx\n' +
               '- 布局文件: frontend/app/[route]/layout.tsx\n' +
               '- 通用组件: frontend/components/ui/\n' +
               '- 业务组件: frontend/components/features/\n' +
               '- Hooks: frontend/hooks/\n' +
               '- 工具函数: frontend/lib/utils/\n' +
-              '- 类型定义: frontend/types/\n\n' +
-              '【当前目录结构】\n' +
+              '- 类型定义: frontend/types/\n' +
+              parentSpecNote +
+              '\n【当前目录结构】\n' +
               projectTree + '\n\n' +
               '【现有文件内容】\n' +
               '以下文件已存在于项目中：\n' +
@@ -246,29 +297,38 @@ jobs:
               '   - 输出完整的可运行代码\n\n' +
               '2. **CREATE（创建新文件）**：\n' +
               '   - 只有在文件不存在时才能创建\n' +
-              '   - 页面必须放在 frontend/app/[route]/page.tsx\n' +
-              '   - 组件必须放在 frontend/components/ 下\n' +
-              '   - 检查是否有可复用的现有组件\n\n' +
+              '   - **如果父级规范中明确指定了文件路径（如 app/(main)/video/page.tsx），必须严格按照父级规范执行**\n' +
+              '   - 如果父级规范未指定，页面放在 frontend/app/[route]/page.tsx\n' +
+              '   - 组件必须放在 frontend/components/ 下（或父级规范指定的位置）\n' +
+              '   - 检查是否有可复用的现有组件\n' +
+              '   - **优先使用【待创建文件路径】中列出的路径，这些路径来自父级规范和讨论**\n\n' +
               '3. **禁止操作**：\n' +
               '   - 禁止删除现有代码\n' +
               '   - 禁止重写已存在的文件（只能修改）\n' +
               '   - 禁止在 app/ 目录创建非页面组件\n' +
-              '   - 禁止创建与现有组件功能重复的新组件\n\n' +
+              '   - 禁止创建与现有组件功能重复的新组件\n' +
+              '   - **严禁在代码文件中输出分隔符（如 ---）**\n' +
+              '   - **严禁在代码文件中输出文档说明、实现说明等非代码内容**\n' +
+              '   - 代码文件只能包含可执行的代码，不能有任何 Markdown 格式的文档\n\n' +
               '【输出格式】\n' +
               '每个文件使用以下格式，必须标明操作类型：\n\n' +
               '### MODIFY: frontend/app/xxx/page.tsx\n' +
               '```tsx\n' +
-              '(完整的修改后代码)\n' +
+              '(完整的修改后代码，仅代码，无分隔符，无文档说明)\n' +
               '```\n\n' +
               '### CREATE: frontend/components/features/xxx.tsx\n' +
               '```tsx\n' +
-              '(新文件的完整代码)\n' +
+              '(新文件的完整代码，仅代码，无分隔符，无文档说明)\n' +
               '```\n\n' +
               '如需新增依赖：\n' +
               '### MODIFY: frontend/package.json\n' +
               '```json\n' +
-              '(完整的 package.json)\n' +
-              '```';
+              '(完整的 package.json，仅 JSON，无分隔符，无文档说明)\n' +
+              '```\n\n' +
+              '【重要提醒】\n' +
+              '- 代码块内只能包含纯代码，不能有任何 --- 分隔符\n' +
+              '- 代码块内不能包含任何 Markdown 格式的文档说明\n' +
+              '- 代码文件末尾不能有任何分隔符或文档内容';
 
             console.log("🤖 调用 AI...");
 
@@ -311,6 +371,11 @@ jobs:
               // 移除代码块标记
               content = content.replace(/^```[\w\-\.]*\s*$/gm, '');
               content = content.replace(/^```\s*$/gm, '');
+              // 移除分隔符行（--- 或类似的）
+              content = content.replace(/^---+[\s-]*$/gm, '');
+              // 移除文件末尾的空行和分隔符
+              content = content.replace(/\n+---+[\s-]*\n*$/g, '');
+              content = content.replace(/\n+---+[\s-]*$/g, '');
               return content.trim();
             };
 
@@ -361,8 +426,8 @@ jobs:
               // 跳过后端文件
               if (file.path.endsWith('.go') || file.path.includes('backend/')) continue;
               
-              // 验证路径
-              const pathErrors = validatePath(file.path);
+              // 验证路径（传入父级规范，允许父级规范覆盖默认规则）
+              const pathErrors = validatePath(file.path, parentSpec);
               if (pathErrors.length > 0) {
                 warnings.push(...pathErrors);
               }

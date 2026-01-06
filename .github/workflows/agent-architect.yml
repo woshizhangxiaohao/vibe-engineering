@@ -42,13 +42,96 @@ jobs:
             const issueBody = process.env.ISSUE_BODY;
             const tree = process.env.PROJECT_TREE;
             const commentBody = process.env.COMMENT_BODY;
+            const treeLines = tree.split('\n').filter(l => l.trim());
             
             console.log("🚀 架构师开始分析...");
+
+            // 检查文件是否存在
+            const fileExists = async (path) => {
+              try {
+                await github.rest.repos.getContent({ ...context.repo, path });
+                return true;
+              } catch (e) {
+                return false;
+              }
+            };
+
+            // 检查目录是否存在（通过检查目录下的文件）
+            const dirExists = async (dirPath) => {
+              try {
+                const { data } = await github.rest.repos.getContent({ 
+                  ...context.repo, 
+                  path: dirPath 
+                });
+                return Array.isArray(data);
+              } catch (e) {
+                return false;
+              }
+            };
+
+            // 从文本中提取可能的文件路径
+            const extractPaths = (text) => {
+              const patterns = [
+                /(?:frontend|src)\/[\w\-\.\/\(\)]+\.(?:tsx|ts|css|json)/g,
+                /app\/[\w\-\.\/\(\)]+\.(?:tsx|ts)/g,
+                /components\/[\w\-\.\/]+\.(?:tsx|ts)/g,
+                /hooks\/[\w\-\.\/]+\.(?:tsx|ts)/g,
+                /lib\/[\w\-\.\/]+\.(?:tsx|ts)/g,
+                /types\/[\w\-\.\/]+\.(?:tsx|ts)/g
+              ];
+              
+              const paths = new Set();
+              for (const pattern of patterns) {
+                const matches = text.match(pattern) || [];
+                matches.forEach(p => {
+                  let normalized = p;
+                  if (!normalized.startsWith('frontend/') && !normalized.startsWith('src/')) {
+                    normalized = 'frontend/' + normalized;
+                  }
+                  paths.add(normalized);
+                });
+              }
+              return Array.from(paths);
+            };
+
+            // 分析现有组件和工具函数
+            const analyzeExistingAssets = () => {
+              const assets = {
+                uiComponents: [],
+                features: [],
+                hooks: [],
+                utils: [],
+                services: [],
+                types: [],
+                pages: []
+              };
+              
+              treeLines.forEach(line => {
+                if (line.includes('components/ui/') && line.endsWith('.tsx')) {
+                  assets.uiComponents.push(line);
+                } else if (line.includes('components/features/') && line.endsWith('.tsx')) {
+                  assets.features.push(line);
+                } else if (line.includes('hooks/') && (line.endsWith('.ts') || line.endsWith('.tsx'))) {
+                  assets.hooks.push(line);
+                } else if (line.includes('lib/utils/') && line.endsWith('.ts')) {
+                  assets.utils.push(line);
+                } else if (line.includes('lib/api/services/') && line.endsWith('.ts')) {
+                  assets.services.push(line);
+                } else if (line.includes('types/') && line.endsWith('.ts')) {
+                  assets.types.push(line);
+                } else if (line.includes('app/') && line.includes('page.tsx')) {
+                  assets.pages.push(line);
+                }
+              });
+              
+              return assets;
+            };
 
             // 1. 自动寻找并读取父级 Issue
             const parentRegex = /(?:Parent|Ref|父任务|父级|父需求|关联父需求)[\s:：]+#(\d+)/i;
             const parentMatch = issueBody.match(parentRegex);
             let fullContext = issueBody;
+            let parentSpec = '';
 
             if (parentMatch) {
               const parentId = parentMatch[1];
@@ -58,48 +141,155 @@ jobs:
                   ...context.repo,
                   issue_number: parentId
                 });
-                fullContext += `\n\n--- [系统追加：父级架构规范 (Issue #${parentId})] ---\n${parentIssue.data.body}`;
+                parentSpec = parentIssue.data.body;
+                fullContext += '\n\n--- [系统追加：父级架构规范 (Issue #' + parentId + ')] ---\n' + parentSpec;
+                
+                // 读取父级 issue 的评论
+                const parentComments = await github.rest.issues.listComments({
+                  ...context.repo,
+                  issue_number: parentId
+                });
+                if (parentComments.data.length > 0) {
+                  const parentCommentsText = parentComments.data
+                    .map(c => '[' + c.user.login + ']:\n' + c.body)
+                    .join('\n\n---\n\n');
+                  fullContext += '\n\n--- [父级 Issue 评论] ---\n' + parentCommentsText;
+                  parentSpec += '\n\n' + parentCommentsText;
+                }
               } catch (e) {
                 console.log(`⚠️ 读取父级需求失败: ${e.message}`);
               }
             }
 
-            // 2. 构建 Prompt
-            const prompt = `你是一名资深前端架构师 (Next.js 专家)。
+            // 2. 分析现有资源
+            console.log("📊 分析现有项目资源...");
+            const existingAssets = analyzeExistingAssets();
             
-            【任务目标】
-            分析用户需求，基于当前项目结构，规划文件路径和目录结构。
-            **注意：不要写具体的代码实现，只输出设计方案和文件列表。**
-
-            【当前项目目录结构】
-            ${tree}
-
-            【需求描述 (含父级规范)】
-            ${fullContext}
+            // 3. 从需求中提取可能的文件路径
+            const allText = fullContext + '\n' + commentBody;
+            const mentionedPaths = extractPaths(allText);
+            console.log(`📋 从需求中识别到 ${mentionedPaths.length} 个可能的文件路径`);
             
-            【补充指令】
-            ${commentBody}
-
-            【你的工作】
-            请告诉工程师应该创建或修改哪些文件。
-            1. **路径检查**：严格遵守 Next.js App Router (app/page.tsx) 规范。
-            2. **复用检查**：如果目录中已有 \`components/ui/button.tsx\` 或 \`utils/request.ts\`，请明确指出应复用它，不要重复造轮子。
-            3. **架构合理性**：将 UI 组件、页面逻辑、工具函数分开放置。
-
-            【输出格式】
-            请直接回复一个 Markdown 列表，格式如下：
+            // 4. 检查文件存在性
+            const pathStatus = [];
+            for (const path of mentionedPaths.slice(0, 20)) { // 限制检查数量
+              const exists = await fileExists(path);
+              pathStatus.push({ path, exists, type: exists ? '已存在' : '需新建' });
+            }
             
-            ## 🏗️ 前端实施方案
-            建议创建/修改以下文件：
-            - \`frontend/app/xxx/page.tsx\`: (说明用途)
-            - \`frontend/components/xxx.tsx\`: (说明组件逻辑)
+            // 5. 分析目录结构需求
+            const dirsToCheck = new Set();
+            mentionedPaths.forEach(path => {
+              const dir = path.substring(0, path.lastIndexOf('/'));
+              if (dir) dirsToCheck.add(dir);
+            });
             
-            ### 设计思路：
-            (简述为什么这么分配目录，以及需要复用哪些现有文件)`;
+            const dirStatus = [];
+            for (const dir of Array.from(dirsToCheck).slice(0, 15)) {
+              const exists = await dirExists(dir);
+              dirStatus.push({ dir, exists, type: exists ? '已存在' : '需新建' });
+            }
+
+            // 6. 构建详细的分析报告
+            const existingAssetsReport = 
+              '### 📦 现有项目资源\n\n' +
+              '**UI 组件** (' + existingAssets.uiComponents.length + ' 个):\n' +
+              (existingAssets.uiComponents.length > 0 
+                ? existingAssets.uiComponents.slice(0, 10).map(c => '- `' + c + '`').join('\n') + 
+                  (existingAssets.uiComponents.length > 10 ? '\n... (还有 ' + (existingAssets.uiComponents.length - 10) + ' 个)' : '')
+                : '无') + '\n\n' +
+              '**业务组件** (' + existingAssets.features.length + ' 个):\n' +
+              (existingAssets.features.length > 0 
+                ? existingAssets.features.slice(0, 10).map(c => '- `' + c + '`').join('\n') + 
+                  (existingAssets.features.length > 10 ? '\n... (还有 ' + (existingAssets.features.length - 10) + ' 个)' : '')
+                : '无') + '\n\n' +
+              '**Hooks** (' + existingAssets.hooks.length + ' 个):\n' +
+              (existingAssets.hooks.length > 0 
+                ? existingAssets.hooks.slice(0, 10).map(h => '- `' + h + '`').join('\n') + 
+                  (existingAssets.hooks.length > 10 ? '\n... (还有 ' + (existingAssets.hooks.length - 10) + ' 个)' : '')
+                : '无') + '\n\n' +
+              '**工具函数** (' + existingAssets.utils.length + ' 个):\n' +
+              (existingAssets.utils.length > 0 
+                ? existingAssets.utils.slice(0, 10).map(u => '- `' + u + '`').join('\n') + 
+                  (existingAssets.utils.length > 10 ? '\n... (还有 ' + (existingAssets.utils.length - 10) + ' 个)' : '')
+                : '无') + '\n\n' +
+              '**API Services** (' + existingAssets.services.length + ' 个):\n' +
+              (existingAssets.services.length > 0 
+                ? existingAssets.services.slice(0, 10).map(s => '- `' + s + '`').join('\n') + 
+                  (existingAssets.services.length > 10 ? '\n... (还有 ' + (existingAssets.services.length - 10) + ' 个)' : '')
+                : '无') + '\n\n' +
+              '**现有页面** (' + existingAssets.pages.length + ' 个):\n' +
+              (existingAssets.pages.length > 0 
+                ? existingAssets.pages.map(p => '- `' + p + '`').join('\n')
+                : '无') + '\n\n';
+
+            const pathStatusReport = pathStatus.length > 0 
+              ? '### 📁 文件路径检查结果\n\n' +
+                pathStatus.map(s => '- `' + s.path + '` - **' + s.type + '**').join('\n') + '\n\n'
+              : '';
+
+            const dirStatusReport = dirStatus.length > 0
+              ? '### 📂 目录结构检查结果\n\n' +
+                dirStatus.map(s => '- `' + s.dir + '` - **' + s.type + '**').join('\n') + '\n\n'
+              : '';
+
+            // 7. 构建增强的 Prompt
+            const prompt = '你是一名资深前端架构师 (Next.js 专家)。\n\n' +
+              '【任务目标】\n' +
+              '分析用户需求，基于当前项目结构，规划文件路径和目录结构。\n' +
+              '**注意：不要写具体的代码实现，只输出设计方案和文件列表。**\n\n' +
+              '【当前项目目录结构】\n' +
+              tree + '\n\n' +
+              existingAssetsReport +
+              pathStatusReport +
+              dirStatusReport +
+              (parentSpec ? '【⚠️ 父级规范 - 最高优先级】\n' +
+                '以下内容来自父级 Issue，**必须严格遵守**，特别是目录结构和文件路径：\n' +
+                parentSpec + '\n\n' : '') +
+              '【需求描述】\n' +
+              fullContext + '\n\n' +
+              '【补充指令】\n' +
+              commentBody + '\n\n' +
+              '【你的工作】\n' +
+              '请基于以上信息，告诉工程师应该创建或修改哪些文件。\n\n' +
+              '1. **文件存在性检查**：\n' +
+              '   - 如果文件已存在，明确标注为"修改"而非"新建"\n' +
+              '   - 如果文件不存在，明确标注为"新建"\n' +
+              '   - 如果目录不存在，明确说明需要新建目录\n\n' +
+              '2. **路径检查**：\n' +
+              '   - 严格遵守 Next.js App Router (app/page.tsx) 规范\n' +
+              '   - 如果父级规范中明确指定了路径（如 app/(main)/video/page.tsx），必须严格按照父级规范执行\n\n' +
+              '3. **复用检查**：\n' +
+              '   - 仔细检查上述"现有项目资源"，如果已有可复用的组件、Hooks、工具函数，**必须明确指出应复用它**\n' +
+              '   - 不要重复造轮子，优先使用现有资源\n' +
+              '   - 如果现有资源不完全匹配，说明如何基于现有资源扩展\n\n' +
+              '4. **架构合理性**：\n' +
+              '   - 将 UI 组件、页面逻辑、工具函数分开放置\n' +
+              '   - 遵循项目的目录结构规范\n' +
+              '   - 说明为什么这么分配目录\n\n' +
+              '5. **目录新建需求**：\n' +
+              '   - 明确说明哪些目录需要新建\n' +
+              '   - 说明新建目录的必要性和用途\n\n' +
+              '【输出格式】\n' +
+              '请严格按照以下格式输出：\n\n' +
+              '## 🏗️ 前端实施方案\n\n' +
+              '### 📋 文件清单\n\n' +
+              '#### ✅ 需新建文件\n' +
+              '- `frontend/app/xxx/page.tsx`: (说明用途，为什么需要新建)\n' +
+              '- `frontend/components/xxx.tsx`: (说明组件逻辑)\n\n' +
+              '#### 🔧 需修改文件\n' +
+              '- `frontend/app/xxx/page.tsx`: (说明需要修改什么，为什么)\n\n' +
+              '#### 📂 需新建目录\n' +
+              '- `frontend/app/(main)/video/`: (说明目录用途和必要性)\n\n' +
+              '### 🔄 复用现有资源\n' +
+              '- `components/ui/button.tsx`: (说明如何复用，是否需要扩展)\n' +
+              '- `hooks/use-debounce.ts`: (说明如何复用)\n\n' +
+              '### 💡 设计思路\n' +
+              '(简述为什么这么分配目录，架构设计的考虑，以及如何最大化复用现有资源)';
 
             console.log("🤖 正在调用 OpenRouter AI...");
 
-            // 3. 调用 AI
+            // 8. 调用 AI
             const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
               method: 'POST',
               headers: {
@@ -107,7 +297,7 @@ jobs:
                 'Content-Type': 'application/json'
               },
               body: JSON.stringify({
-                model: "anthropic/claude-3.5-sonnet",
+                model: "anthropic/claude-sonnet-4.5",
                 messages: [{ role: "user", content: prompt }]
               })
             });
@@ -120,7 +310,7 @@ jobs:
             const aiData = await aiRes.json();
             const plan = aiData.choices[0].message.content;
 
-            // 4. 回复评论
+            // 9. 回复评论
             await github.rest.issues.createComment({
               ...context.repo,
               issue_number: context.issue.number,
