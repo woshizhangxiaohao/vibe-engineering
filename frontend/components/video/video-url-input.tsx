@@ -1,63 +1,61 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
-import { validateYouTubeUrl } from "@/lib/utils/video";
+import { parseYouTubeUrl } from "@/lib/utils/video";
 import { useDebounce } from "@/hooks/use-debounce";
 
 interface VideoUrlInputProps {
-  onUrlValidated: (url: string) => void;
-  disabled?: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  onValidUrlDetected?: (videoId: string) => void;
 }
 
-export function VideoUrlInput({ onUrlValidated, disabled }: VideoUrlInputProps) {
-  const [url, setUrl] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const debouncedUrl = useDebounce(url, 500);
+export function VideoUrlInput({
+  value,
+  onChange,
+  onValidUrlDetected,
+}: VideoUrlInputProps) {
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const debouncedUrl = useDebounce(value, 500);
 
   useEffect(() => {
     if (!debouncedUrl.trim()) {
-      setError(null);
+      setValidationError(null);
       return;
     }
 
-    const validation = validateYouTubeUrl(debouncedUrl);
-    
-    if (!validation.isValid) {
-      setError("请输入有效的 YouTube 链接");
+    const { isValid, videoId } = parseYouTubeUrl(debouncedUrl);
+
+    if (!isValid) {
+      setValidationError("请输入有效的 YouTube 链接");
       return;
     }
 
-    setError(null);
-    onUrlValidated(validation.url!);
-  }, [debouncedUrl, onUrlValidated]);
-
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setUrl(e.target.value);
-  }, []);
-
-  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
-    const pastedUrl = e.clipboardData.getData('text');
-    setUrl(pastedUrl);
-  }, []);
+    setValidationError(null);
+    if (videoId && onValidUrlDetected) {
+      onValidUrlDetected(videoId);
+    }
+  }, [debouncedUrl, onValidUrlDetected]);
 
   return (
     <div className="space-y-2">
+      <Label htmlFor="video-url">YouTube 视频链接</Label>
       <Input
-        type="text"
-        placeholder="粘贴 YouTube 链接 (支持 youtube.com 和 youtu.be)"
-        value={url}
-        onChange={handleChange}
-        onPaste={handlePaste}
-        disabled={disabled}
-        className="w-full"
+        id="video-url"
+        type="url"
+        placeholder="粘贴 YouTube 链接（如：https://www.youtube.com/watch?v=xxxxx）"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="font-mono text-sm"
       />
-      {error && (
+      {validationError && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{validationError}</AlertDescription>
         </Alert>
       )}
     </div>
