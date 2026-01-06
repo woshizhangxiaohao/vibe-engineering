@@ -1,0 +1,56 @@
+name: PR Checklist Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches:
+      - claude-code/auto-coding/**
+    
+if: contains(github.event.pull_request.labels.*.name, 'checklist')
+
+jobs:
+  checklist:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Action
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+        with:
+          api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            请按照团队检查清单审查这个 PR，并在 PR 上发布带打勾的总结：
+
+            ## Code Quality
+            - [ ] 遵循风格指南
+            - [ ] 无注释掉的代码
+            - [ ] 变量命名有意义
+            - [ ] 遵循 DRY 原则
+
+            ## Testing
+            - [ ] 新功能有单元测试
+            - [ ] 新接口有集成测试
+            - [ ] 覆盖边缘情况
+            - [ ] 测试覆盖率 > 80%
+
+            ## Documentation
+            - [ ] README 如需更新已更新
+            - [ ] API 文档已同步
+            - [ ] 复杂逻辑有内联注释
+
+            ## Security
+            - [ ] 无硬编码凭证
+            - [ ] 输入验证完整
+            - [ ] 错误处理安全
+          allowed_tools: '["github:inline_comment", "github:comment_on_pr"]'

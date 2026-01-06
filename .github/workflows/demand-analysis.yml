@@ -1,0 +1,67 @@
+name: Demand Analysis with Claude
+
+on:
+  issues:
+    types: [opened, labeled]  # 创建或后期加标签都触发
+    if: contains(github.event.issue.labels.*.name, 'claude-tech')
+
+jobs:
+  analyze:
+    if: contains(github.event.issue.labels.*.name, 'claude-tech')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Checkout Testing Branch
+        uses: actions/checkout@v6
+        with:
+          # 【关键】强制检出你的测试分支，而不是默认的 main
+          ref: 'claude-code/auto-coding'
+          fetch-depth: 0
+
+      - name: Run Claude Code Action
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+        with:
+          api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          model: anthropic/claude-sonnet-4.5
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            ISSUE NUMBER: ${{ github.event.issue.number }}
+            TITLE: ${{ github.event.issue.title }}
+            BODY: ${{ github.event.issue.body }}
+
+            这是一个功能需求 Issue，请用中文严格按照以下结构分析并评论到 Issue 上：
+
+            🏗 技术架构设计
+            预计工时: X-Y 天
+
+            💡 分析思路
+            - 需求分析
+            - 技术复杂度评估
+            - 关键技术点（前后端、数据库、第三方依赖）
+            - 风险点
+
+            💾 Backend Contract (Go)
+            - API 接口定义（请求/响应结构体）
+            - 数据库表结构变更
+            - 相关模型更新
+            - 服务接口定义
+
+            🎨 Frontend Contract
+            - URL 正则匹配
+            - UI 交互流程
+            - 状态管理
+            - 错误处理与优化点
+
+            📋 任务分解进度
+            - 建议创建的子 Issue 标题列表（用 [ ] 表示）
+
+            最后以结构化 JSON 输出任务列表（便于后续自动化创建子 Issue）：
+            {
+              "tasks": ["[BE] xxx", "[FE] xxx", "..."]
+            }
+          allowed_tools: '["github:get_issue", "github:comment_on_issue", "github:create_issue"]'

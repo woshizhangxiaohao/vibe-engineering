@@ -1,0 +1,42 @@
+name: PR Auto Review with Claude
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+    branches:
+      - claude-code/auto-coding/**
+
+# ← 这里是关键！if 必须和 on: 对齐（2 个空格或 0 个空格，通常和 name/on/jobs 同级）
+if: contains(github.event.pull_request.labels.*.name, 'auto-review')
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Action
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+        with:
+          api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          model: claude-3-5-sonnet-20241022
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            请全面审查这个 Pull Request，重点关注：
+            - 代码质量与最佳实践
+            - 潜在 bug 或逻辑问题
+            - 安全隐患
+            - 性能优化点
+            - 测试覆盖与文档完整性
+            使用内联评论指出具体问题，并在 PR 上发布总结评论。
+          allowed_tools: '["github:inline_comment", "github:comment_on_pr"]'
