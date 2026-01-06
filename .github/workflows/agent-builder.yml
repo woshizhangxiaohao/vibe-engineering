@@ -372,8 +372,9 @@ jobs:
             if (styleGuideExists) {
               const styleGuide = await readFileContent(styleGuidePath);
               if (styleGuide) {
+                // 直接使用原始内容，不需要转义
                 styleGuideContent = styleGuide;
-                console.log(`📚 已读取前端开发规范文档: ${styleGuidePath}`);
+                console.log('📚 已读取前端开发规范文档: ' + styleGuidePath);
               }
             }
 
@@ -444,17 +445,17 @@ jobs:
             // 构建页面检查提示
             let pageCheckNote = '';
             if (requiredPagePath) {
-              pageCheckNote = '\n\n【⚠️ 重要：必须创建页面】\n' +
-                `检测到需求中提到了页面路径 ${requiredPagePath}，但该页面不存在。\n` +
-                `**你必须创建这个页面文件**，否则功能无法正常使用。\n` +
-                `请确保在输出中包含：\n` +
-                `### CREATE: ${requiredPagePath}\n` +
-                ````tsx\n` +
-                `(完整的页面代码)\n` +
-                ````\n`;
+              pageCheckNote = '\n\n【重要：必须创建页面】\n' +
+                '检测到需求中提到了页面路径 ' + requiredPagePath + '，但该页面不存在。\n' +
+                '**你必须创建这个页面文件**，否则功能无法正常使用。\n' +
+                '请确保在输出中包含：\n' +
+                '### CREATE: ' + requiredPagePath + '\n' +
+                '```tsx\n' +
+                '(完整的页面代码)\n' +
+                '```\n';
             } else if (newFilesList.includes('page.tsx') || contextBody.includes('页面') || contextBody.includes('page') || frontendSpec.includes('页面') || frontendPlan.includes('页面')) {
               // 如果提到了页面但没有找到具体路径，提醒 AI 检查
-              pageCheckNote = '\n\n【⚠️ 页面检查】\n' +
+              pageCheckNote = '\n\n【页面检查】\n' +
                 '需求中提到了页面相关的内容，请检查是否需要创建新的页面文件。\n' +
                 '如果需要创建页面，请使用正确的路径格式（如 frontend/app/(main)/video/page.tsx）。\n' +
                 '**如果前端规范或前端方案中提到了页面路径，必须严格按照规范创建页面**。\n';
@@ -463,8 +464,8 @@ jobs:
             // 构建前端规范和方案提示（优先级最高）
             let frontendSpecNote = '';
             if (frontendSpec || frontendPlan) {
-              frontendSpecNote = '\n\n【🚨 前端规范和方案（最高优先级 - 必须严格遵守）】\n';
-              frontendSpecNote += '**⚠️ 重要：以下规范优先级高于所有其他规范（包括基础开发规范文档）。如有冲突，必须优先遵循以下规范。**\n\n';
+              frontendSpecNote = '\n\n【前端规范和方案（最高优先级 - 必须严格遵守）】\n';
+              frontendSpecNote += '**重要：以下规范优先级高于所有其他规范（包括基础开发规范文档）。如有冲突，必须优先遵循以下规范。**\n\n';
               if (frontendSpec) {
                 // 检查是否来自父级 issue（通过检查 contextBody 中是否包含"来自父级 Issue"）
                 const isFromParent = contextBody.includes('前端规范（来自父级 Issue）');
@@ -482,7 +483,7 @@ jobs:
             // 构建父级规范提示
             let parentSpecNote = '';
             if (parentSpec) {
-              parentSpecNote = '\n\n【⚠️ 父级 Issue 基本信息】\n' +
+              parentSpecNote = '\n\n【父级 Issue 基本信息】\n' +
                 '以下内容来自父级 Issue，供参考：\n' +
                 parentSpec + '\n';
             }
@@ -490,11 +491,12 @@ jobs:
             // 构建前端开发规范提示（基础规范，优先级低于评论/Issue 规范）
             let styleGuideNote = '';
             if (styleGuideContent) {
-              const priorityNote = (frontendSpec || frontendPlan) 
-                ? '\n**⚠️ 注意：这是基础开发规范。如果上面的前端规范和方案中有冲突的规范，优先遵循上面的规范。**\n'
+              const hasFrontendSpec = frontendSpec || frontendPlan;
+              const priorityNote = hasFrontendSpec 
+                ? '\n**注意：这是基础开发规范。如果上面的前端规范和方案中有冲突的规范，优先遵循上面的规范。**\n'
                 : '\n**这是项目的基础前端开发规范，所有代码必须严格遵循。**\n';
               
-              styleGuideNote = '\n\n【📚 前端开发规范（基础规范）】\n' +
+              styleGuideNote = '\n\n【前端开发规范（基础规范）】\n' +
                 priorityNote +
                 styleGuideContent + '\n\n' +
                 '**基础规范要点**：\n' +
@@ -579,7 +581,7 @@ jobs:
               '```json\n' +
               '(完整的 package.json，仅 JSON，无分隔符，无文档说明)\n' +
               '```\n\n' +
-              '【⚠️ 绝对禁止 - 代码块内容规则】\n' +
+              '【绝对禁止 - 代码块内容规则】\n' +
               '代码块（```tsx 和 ```json 之间的内容）必须严格遵守以下规则：\n' +
               '1. **只能包含可执行的代码**：TypeScript/TSX/JSON 代码，不能有任何其他内容\n' +
               '2. **禁止任何 Markdown 格式**：\n' +
