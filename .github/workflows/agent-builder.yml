@@ -307,9 +307,10 @@ jobs:
               '   - 禁止重写已存在的文件（只能修改）\n' +
               '   - 禁止在 app/ 目录创建非页面组件\n' +
               '   - 禁止创建与现有组件功能重复的新组件\n' +
-              '   - **严禁在代码文件中输出分隔符（如 ---）**\n' +
-              '   - **严禁在代码文件中输出文档说明、实现说明等非代码内容**\n' +
-              '   - 代码文件只能包含可执行的代码，不能有任何 Markdown 格式的文档\n\n' +
+              '   - **严禁在代码块内输出任何 Markdown 格式内容**（标题 ###、列表 -、分隔符 --- 等）\n' +
+              '   - **严禁在代码块内输出文档说明、实现说明、步骤说明等非代码内容**\n' +
+              '   - **代码块内只能包含纯代码，不能有任何文字说明或 Markdown 格式**\n' +
+              '   - 代码块必须从文件开头到结尾的完整代码，结束后立即关闭 ```\n\n' +
               '【输出格式】\n' +
               '每个文件使用以下格式，必须标明操作类型：\n\n' +
               '### MODIFY: frontend/app/xxx/page.tsx\n' +
@@ -325,10 +326,46 @@ jobs:
               '```json\n' +
               '(完整的 package.json，仅 JSON，无分隔符，无文档说明)\n' +
               '```\n\n' +
-              '【重要提醒】\n' +
-              '- 代码块内只能包含纯代码，不能有任何 --- 分隔符\n' +
-              '- 代码块内不能包含任何 Markdown 格式的文档说明\n' +
-              '- 代码文件末尾不能有任何分隔符或文档内容';
+              '【⚠️ 绝对禁止 - 代码块内容规则】\n' +
+              '代码块（```tsx 和 ```json 之间的内容）必须严格遵守以下规则：\n' +
+              '1. **只能包含可执行的代码**：TypeScript/TSX/JSON 代码，不能有任何其他内容\n' +
+              '2. **禁止任何 Markdown 格式**：\n' +
+              '   - 禁止 Markdown 标题（如 ### 标题、## 标题、# 标题）\n' +
+              '   - 禁止 Markdown 列表（如 - 项目、* 项目、1. 项目）\n' +
+              '   - 禁止 Markdown 分隔符（如 ---、***）\n' +
+              '   - 禁止 Markdown 注释（如 <!-- 注释 -->）\n' +
+              '3. **禁止任何文档说明**：\n' +
+              '   - 禁止实现说明、步骤说明、注释说明等文字描述\n' +
+              '   - 禁止在代码中添加"步骤1"、"步骤2"等说明性文字\n' +
+              '   - 禁止在代码末尾添加任何说明性内容\n' +
+              '4. **只允许代码注释**：\n' +
+              '   - 只允许使用 // 或 /* */ 格式的代码注释\n' +
+              '   - 注释必须是代码的一部分，不能是独立的说明段落\n' +
+              '5. **代码块必须完整**：\n' +
+              '   - 代码块必须从文件开头到文件结尾的完整代码\n' +
+              '   - 代码块结束后立即关闭 ```，不能有任何后续内容\n' +
+              '\n' +
+              '【示例 - 正确格式】\n' +
+              '### CREATE: frontend/app/test/page.tsx\n' +
+              '```tsx\n' +
+              '"use client";\n' +
+              '\n' +
+              'export default function TestPage() {\n' +
+              '  return <div>Test</div>;\n' +
+              '}\n' +
+              '```\n' +
+              '\n' +
+              '【示例 - 错误格式（禁止）】\n' +
+              '### CREATE: frontend/app/test/page.tsx\n' +
+              '```tsx\n' +
+              '"use client";\n' +
+              '\n' +
+              'export default function TestPage() {\n' +
+              '  return <div>Test</div>;\n' +
+              '}\n' +
+              '\n' +
+              '### 类型导出  <-- 禁止！这是 Markdown 标题\n' +
+              '```  <-- 禁止！代码块内不能有 Markdown';
 
             console.log("🤖 调用 AI...");
 
@@ -373,9 +410,16 @@ jobs:
               content = content.replace(/^```\s*$/gm, '');
               // 移除分隔符行（--- 或类似的）
               content = content.replace(/^---+[\s-]*$/gm, '');
+              // 移除 Markdown 标题（###, ##, #）
+              content = content.replace(/^#{1,6}\s+.+$/gm, '');
+              // 移除 Markdown 列表项（- , * , 1. 等）
+              content = content.replace(/^[\s]*[-*+]\s+.+$/gm, '');
+              content = content.replace(/^[\s]*\d+\.\s+.+$/gm, '');
               // 移除文件末尾的空行和分隔符
               content = content.replace(/\n+---+[\s-]*\n*$/g, '');
               content = content.replace(/\n+---+[\s-]*$/g, '');
+              // 移除多余的空行（连续3个或以上空行）
+              content = content.replace(/\n{3,}/g, '\n\n');
               return content.trim();
             };
 
