@@ -38,9 +38,10 @@ jobs:
               const issue_number = context.issue.number;
               const commentBody = context.payload.comment.body;
 
-              // 1. Extract UI Spec comment URL
+              // 1. Extract UI Spec comment URL (supports both raw URL and markdown link format)
+              // GitHub auto-converts URLs to markdown: [#139 (comment)](https://...)
               const match = commentBody.match(
-                /https:\/\/github\.com\/[^\/]+\/[^\/]+\/issues\/\d+#issuecomment-\d+/
+                /https:\/\/github\.com\/[^\s\)]+\/issues\/\d+#issuecomment-\d+/
               );
 
               if (!match) {
@@ -87,52 +88,52 @@ jobs:
 
               // 4. Build system prompt and user prompt
               const systemPrompt = `You are the **Frontend Execution Agent**.
-
-                Your task:
-                Generate COMPLETE frontend code and output it in a MACHINE-PARSABLE FORMAT.
-                
-                ====================
-                RULES (STRICT)
-                ====================
-                - UI spec is a contract
-                - No UI redesign
-                - No extra features
-                - No persistence
-                - Single Page Interface
-                - Next.js App Router
-                - TypeScript strict
-                - Tailwind CSS
-                
-                ====================
-                OUTPUT FORMAT (MANDATORY)
-                ====================
-                Return ONLY valid JSON in this exact shape:
-                
-                {
-                  "files": [
-                    {
-                      "path": "relative/path/to/file.tsx",
-                      "content": "full file content"
-                    }
-                  ]
-                }
-                
-                No markdown.
-                No explanations.
-                No extra text.`;
-                
-                const userPrompt = `
-                ====================
-                SOURCE OF TRUTH
-                ${commentUrl}
-                ====================
-                
-                ${frozenUISpec}
-                
-                ${userInstructions ? `====================
-                USER INSTRUCTIONS
-                ====================
-                ${userInstructions}` : ""}`;
+              
+              Your task:
+              Generate COMPLETE frontend code and output it in a MACHINE-PARSABLE FORMAT.
+              
+              ====================
+              RULES (STRICT)
+              ====================
+              - UI spec is a contract
+              - No UI redesign
+              - No extra features
+              - No persistence
+              - Single Page Interface
+              - Next.js App Router
+              - TypeScript strict
+              - Tailwind CSS
+              
+              ====================
+              OUTPUT FORMAT (MANDATORY)
+              ====================
+              Return ONLY valid JSON in this exact shape:
+              
+              {
+                "files": [
+                  {
+                    "path": "relative/path/to/file.tsx",
+                    "content": "full file content"
+                  }
+                ]
+              }
+              
+              No markdown.
+              No explanations.
+              No extra text.`;
+              
+              const userPrompt = `
+              ====================
+              SOURCE OF TRUTH
+              ${commentUrl}
+              ====================
+              
+              ${frozenUISpec}
+              
+              ${userInstructions ? `====================
+              USER INSTRUCTIONS
+              ====================
+              ${userInstructions}` : ""}`;
 
               // 5. Call model
               const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
