@@ -82,6 +82,80 @@ jobs:
 
               const frozenUISpec = commentRes.data.body;
 
+              // 2.1 Analyze requirements and generate todolist
+              const analysisPrompt = `你是一个前端需求分析专家。请分析以下 UI 规格和用户指令，生成需求分析和待办清单。
+
+              UI 规格来源: ${commentUrl}
+              
+              UI 规格内容:
+              ${frozenUISpec}
+              
+              ${userInstructions ? `用户额外指令:\n${userInstructions}` : ""}
+              
+              请返回 JSON 格式:
+              {
+                "analysis": "需求分析总结（2-3句话）",
+                "todolist": [
+                  "待办项1",
+                  "待办项2",
+                  "待办项3"
+                ]
+              }
+              
+              只返回 JSON，不要其他内容。`;
+
+              const analysisRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  model: "google/gemini-3-flash-preview",
+                  messages: [
+                    { role: "user", content: analysisPrompt }
+                  ],
+                  temperature: 0.3
+                })
+              });
+
+              const analysisData = await analysisRes.json();
+              const analysisRaw = analysisData.choices?.[0]?.message?.content;
+              
+              let analysisResult = { analysis: "", todolist: [] };
+              if (analysisRaw) {
+                let analysisJsonStr = analysisRaw.trim();
+                const analysisJsonMatch = analysisJsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+                if (analysisJsonMatch) {
+                  analysisJsonStr = analysisJsonMatch[1].trim();
+                }
+                try {
+                  analysisResult = JSON.parse(analysisJsonStr);
+                } catch (e) {
+                  console.error("Failed to parse analysis JSON:", e);
+                  analysisResult.analysis = "需求分析完成";
+                  analysisResult.todolist = ["实现前端界面"];
+                }
+              }
+
+              // 2.2 Post analysis and todolist comment
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body: [
+                  "📋 **需求分析完成**",
+                  "",
+                  "### 需求分析",
+                  analysisResult.analysis || "正在分析需求...",
+                  "",
+                  "### 📝 待办清单",
+                  analysisResult.todolist.map((item, idx) => `- [ ] ${item}`).join("\n"),
+                  "",
+                  "⏳ 开始生成代码..."
+                ].join("\n")
+              });
+
               // 3. Create new branch
               const branchName = `agent-fe-${issue_number}-${Date.now()}`;
               execSync(`git checkout -b ${branchName}`);
@@ -133,7 +207,12 @@ jobs:
               ${userInstructions ? `====================
               USER INSTRUCTIONS
               ====================
-              ${userInstructions}` : ""}`;
+              ${userInstructions}` : ""}
+              
+              ${analysisResult.todolist.length > 0 ? `====================
+              TODO LIST (参考)
+              ====================
+              ${analysisResult.todolist.map((item, idx) => `${idx + 1}. ${item}`).join("\n")}` : ""}`;
 
               // 5. Call model
               const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -174,10 +253,64 @@ jobs:
               }
 
               // 6. Write files
+              const generatedFiles = [];
               for (const file of parsed.files) {
                 const fullPath = path.join(process.cwd(), file.path);
                 fs.mkdirSync(path.dirname(fullPath), { recursive: true });
                 fs.writeFileSync(fullPath, file.content, "utf8");
+                generatedFiles.push(file.path);
+              }
+
+              // 6.1 Analyze completion status
+              const completionPrompt = `请分析以下内容，对比待办清单和实际完成情况。
+
+              待办清单:
+              ${analysisResult.todolist.map((item, idx) => `${idx + 1}. ${item}`).join("\n")}
+              
+              实际生成的文件:
+              ${generatedFiles.map((f, idx) => `${idx + 1}. ${f}`).join("\n")}
+              
+              请返回 JSON 格式:
+              {
+                "completed": ["已完成项1", "已完成项2"],
+                "notCompleted": ["未完成项1", "未完成项2"],
+                "summary": "完成情况总结（1-2句话）"
+              }
+              
+              只返回 JSON，不要其他内容。`;
+
+              const completionRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  model: "google/gemini-3-flash-preview",
+                  messages: [
+                    { role: "user", content: completionPrompt }
+                  ],
+                  temperature: 0.3
+                })
+              });
+
+              const completionData = await completionRes.json();
+              const completionRaw = completionData.choices?.[0]?.message?.content;
+              
+              let completionStatus = { completed: [], notCompleted: [], summary: "" };
+              if (completionRaw) {
+                let completionJsonStr = completionRaw.trim();
+                const completionJsonMatch = completionJsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+                if (completionJsonMatch) {
+                  completionJsonStr = completionJsonMatch[1].trim();
+                }
+                try {
+                  completionStatus = JSON.parse(completionJsonStr);
+                } catch (e) {
+                  console.error("Failed to parse completion JSON:", e);
+                  completionStatus.completed = analysisResult.todolist;
+                  completionStatus.summary = "代码已生成";
+                }
               }
 
               // 7. Commit changes
@@ -197,6 +330,17 @@ jobs:
                   "",
                   `UI Spec Source: ${commentUrl}`,
                   "",
+                  "### 完成情况",
+                  completionStatus.summary || "代码已生成",
+                  "",
+                  "**已完成:**",
+                  completionStatus.completed.map(item => `- ✅ ${item}`).join("\n") || "- 代码已生成",
+                  "",
+                  completionStatus.notCompleted.length > 0 ? [
+                    "**未完成:**",
+                    completionStatus.notCompleted.map(item => `- ❌ ${item}`).join("\n"),
+                    ""
+                  ].join("\n") : "",
                   "- UI spec treated as immutable contract",
                   "- No UI inference or redesign",
                   "- Ready for review"
@@ -213,6 +357,23 @@ jobs:
                   "",
                   `🔗 PR: ${pr.data.html_url}`,
                   "",
+                  "### 📊 完成情况",
+                  completionStatus.summary || "代码已生成并提交",
+                  "",
+                  "**✅ 已完成:**",
+                  completionStatus.completed.length > 0 
+                    ? completionStatus.completed.map(item => `- ${item}`).join("\n")
+                    : "- 代码已生成",
+                  "",
+                  completionStatus.notCompleted.length > 0 ? [
+                    "**❌ 未完成:**",
+                    completionStatus.notCompleted.map(item => `- ${item}`).join("\n"),
+                    ""
+                  ].join("\n") : "",
+                  "**📁 生成的文件:**",
+                  generatedFiles.map(f => `- \`${f}\``).join("\n"),
+                  "",
+                  "---",
                   "Notes:",
                   "- Frontend code generated and committed",
                   "- UI spec respected strictly",
