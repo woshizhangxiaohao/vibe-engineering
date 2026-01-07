@@ -24,25 +24,41 @@ jobs:
         uses: actions/github-script@v7
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
         with:
           script: |
             async function runFrontendAgent() {
+              const { owner, repo } = context.repo;
+              const issue_number = context.issue.number;
+
+              // 1. Fetch all comments
+              const commentsRes = await github.rest.issues.listComments({
+                owner,
+                repo,
+                issue_number,
+                per_page: 100
+              });
+
+              // 2. Find latest UI Agent output
+              const uiComment = [...commentsRes.data].reverse().find(c =>
+                c.body && c.body.includes("🧩 UI Agent Output (Frozen UI Spec)")
+              );
+
+              if (!uiComment) {
+                throw new Error("Frozen UI Spec not found. Run /agent-ui first.");
+              }
+
+              const frozenUISpec = uiComment.body;
+
               const prompt = `
-                You are the **Frontend Execution Agent** for this repository.
+                You are the **Frontend Execution Agent**.
                 
                 Your mission:
-                Implement the frontend strictly according to the **Frozen UI Specification** in this issue.
+                Implement the frontend strictly according to the **Frozen UI Specification** below.
                 
                 ====================
-                ISSUE TITLE:
-                ${process.env.ISSUE_TITLE}
-                
-                ISSUE BODY (Includes Frozen UI Spec):
-                ${process.env.ISSUE_BODY}
+                FROZEN UI SPEC (AUTHORITATIVE)
                 ====================
+                ${frozenUISpec}
                 
                 ====================
                 NON-NEGOTIABLE RULES
@@ -52,12 +68,7 @@ jobs:
                 - Do NOT add or remove UI elements
                 - Do NOT improve UX beyond the spec
                 - Do NOT add persistence
-                - Do NOT redesign layout
-                - You may ONLY:
-                  - create frontend files
-                  - bind data
-                  - manage UI state
-                  - implement loading & error states
+                - Single Page Interface only
                 
                 ====================
                 TECH STACK
@@ -65,38 +76,16 @@ jobs:
                 - Next.js (App Router)
                 - TypeScript
                 - Tailwind CSS
-                - Single Page Interface (no routing)
                 
                 ====================
-                REQUIRED OUTPUT
+                REQUIRED OUTPUT FORMAT
                 ====================
-                You must respond in the following strict format:
-                
                 ### File Structure
-                - List all files to be created or modified
-                
                 ### Implementation Plan
-                - Bullet points mapping UI Spec → Components
-                
-                ### Code
-                - Provide COMPLETE code
-                - One code block per file
-                - No pseudocode
-                - TypeScript strict
-                
-                ====================
-                EXECUTION ORDER
-                ====================
-                1. Define component boundaries
-                2. Define state machine
-                3. Implement UI skeleton
-                4. Bind async parsing API (mock if missing)
-                5. Ensure append-only feed behavior
-                6. Final check: zero UI drift
+                ### Code (complete files, no pseudocode)
                 
                 If the UI spec is ambiguous:
                 - Ask EXACTLY ONE clarification question
-                - Otherwise make reasonable assumptions and state them
                               `;
 
               const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -108,33 +97,26 @@ jobs:
                 body: JSON.stringify({
                   model: "google/gemini-3-flash-preview",
                   messages: [{ role: "user", content: prompt }],
-                  temperature: 0.2
+                  temperature: 0.4
                 })
               });
 
               const data = await res.json();
-              if (!data.choices || !data.choices[0]) {
+              if (!data.choices?.[0]) {
                 throw new Error("Frontend Agent returned invalid response");
               }
 
-              const feOutput = data.choices[0].message.content;
-
               await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
+                owner,
+                repo,
+                issue_number,
                 body: [
                   "🛠️ Frontend Agent Output (Implementation Draft)",
                   "",
-                  feOutput,
+                  data.choices[0].message.content,
                   "",
                   "---",
-                  "",
-                  "Frontend Execution Notice:",
-                  "- UI spec respected without modification",
-                  "- Append-only feed enforced",
-                  "- No persistence added",
-                  "- Ready for PR generation"
+                  "UI contract respected. No UI drift."
                 ].join("\\n")
               });
             }
