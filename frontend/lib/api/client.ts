@@ -124,6 +124,11 @@ class ApiClient {
       params ? buildQueryString(params) : ""
     }`;
 
+    // Debug logging in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[API Client] ${method} ${url}`, body ? { body } : '');
+    }
+
     // 构建请求配置
     const requestInit: RequestInit = {
       method,
