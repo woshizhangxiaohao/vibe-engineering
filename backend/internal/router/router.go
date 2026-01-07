@@ -9,6 +9,7 @@ import (
 	"vibe-backend/internal/handlers"
 	"vibe-backend/internal/middleware"
 	"vibe-backend/internal/repository"
+	"vibe-backend/internal/services"
 )
 
 // New creates and configures a new Gin router.
@@ -31,6 +32,8 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 	healthHandler := handlers.NewHealthHandler(db, cache)
 	pomodoroRepo := repository.NewPomodoroRepository(db.DB)
 	pomodoroHandler := handlers.NewPomodoroHandler(pomodoroRepo)
+	parserService := services.NewParserService(log)
+	parseHandler := handlers.NewParseHandler(parserService, log)
 
 	// Health check routes (no auth required)
 	r.GET("/health", healthHandler.Health)
@@ -39,6 +42,9 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 	// API routes
 	api := r.Group("/api")
 	{
+		// Parse routes
+		api.POST("/parse", parseHandler.Parse)
+
 		// Pomodoro routes
 		pomodoros := api.Group("/pomodoros")
 		{
