@@ -52,6 +52,7 @@ jobs:
           github_token: ${{ github.token }}
           model: anthropic/claude-sonnet-4.5
           track_progress: true
+          acknowledge-dangerously-skip-permissions-responsibility: true
           prompt: |
             ${{ env.AGENT_PROMPT }}
             
