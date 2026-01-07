@@ -452,21 +452,55 @@ jobs:
               const raw = data.choices?.[0]?.message?.content;
 
               if (!raw) {
+                console.error("❌ Model returned empty response.");
+                console.error("Response data:", JSON.stringify(data, null, 2));
                 throw new Error("Model returned empty response.");
               }
 
-              // 5.1 Extract JSON from possible markdown code block
+              console.log("📝 Model raw response length:", raw.length);
+              console.log("📝 Model raw response preview (first 500 chars):");
+              console.log("-".repeat(80));
+              console.log(raw.substring(0, 500));
+              console.log("-".repeat(80));
+
+              // 5.1 Extract JSON from possible markdown code block or find JSON object
               let jsonStr = raw.trim();
+              
+              // Try to extract from markdown code block first
               const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
               if (jsonMatch) {
                 jsonStr = jsonMatch[1].trim();
+                console.log("✅ Extracted JSON from markdown code block");
+              } else {
+                // Try to find JSON object by finding first { and last }
+                const firstBrace = jsonStr.indexOf('{');
+                const lastBrace = jsonStr.lastIndexOf('}');
+                if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                  jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
+                  console.log("✅ Extracted JSON object from text");
+                } else {
+                  console.log("ℹ️  No JSON structure found, using raw content");
+                }
               }
+
+              console.log("📄 JSON string length:", jsonStr.length);
+              console.log("📄 JSON string preview (first 500 chars):");
+              console.log("-".repeat(80));
+              console.log(jsonStr.substring(0, 500));
+              console.log("-".repeat(80));
 
               let parsed;
               try {
                 parsed = JSON.parse(jsonStr);
-              } catch {
-                throw new Error("Model output is not valid JSON.");
+                console.log("✅ JSON parsed successfully");
+                console.log(`📦 Parsed object has ${parsed.files?.length || 0} files`);
+              } catch (parseError) {
+                console.error("❌ JSON parse error:", parseError.message);
+                console.error("❌ JSON string (full):");
+                console.error("-".repeat(80));
+                console.error(jsonStr);
+                console.error("-".repeat(80));
+                throw new Error(`Model output is not valid JSON: ${parseError.message}`);
               }
 
               // 6. Write files with path validation
