@@ -6,9 +6,7 @@ on:
 
 jobs:
   frontend-agent:
-    if: |
-      contains(github.event.comment.body, '/agent-fe') ||
-      contains(github.event.comment.body, '/agent frontend')
+    if: contains(github.event.comment.body, '/agent-fe')
     runs-on: ubuntu-latest
 
     permissions:
@@ -20,74 +18,123 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - name: Vibe Frontend Agent - Implement Frozen UI
+      - name: Setup Git
+        run: |
+          git config user.name "vibe-frontend-agent"
+          git config user.email "agent@vibe.dev"
+
+      - name: Vibe Frontend Agent - Generate Code and Open PR
         uses: actions/github-script@v7
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         with:
           script: |
+            const fs = require("fs");
+            const path = require("path");
+            const { execSync } = require("child_process");
+
             async function runFrontendAgent() {
               const { owner, repo } = context.repo;
               const issue_number = context.issue.number;
+              const commentBody = context.payload.comment.body;
 
-              // 1. Fetch all comments
-              const commentsRes = await github.rest.issues.listComments({
-                owner,
-                repo,
-                issue_number,
-                per_page: 100
-              });
-
-              // 2. Find latest UI Agent output
-              const uiComment = [...commentsRes.data].reverse().find(c =>
-                c.body && c.body.includes("🧩 UI Agent Output (Frozen UI Spec)")
+              // 1. Extract UI Spec comment URL
+              const match = commentBody.match(
+                /https:\/\/github\.com\/[^\/]+\/[^\/]+\/issues\/\d+#issuecomment-\d+/
               );
 
-              if (!uiComment) {
-                throw new Error("Frozen UI Spec not found. Run /agent-ui first.");
+              if (!match) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number,
+                  body: [
+                    "❌ **缺少评论 URL**",
+                    "",
+                    "用法: `/agent-fe <github issue comment url>`",
+                    "",
+                    "示例:",
+                    "```",
+                    "/agent-fe https://github.com/owner/repo/issues/1#issuecomment-123456",
+                    "请使用深色主题",
+                    "```"
+                  ].join("\n")
+                });
+                return;
               }
 
-              const frozenUISpec = uiComment.body;
+              const commentUrl = match[0];
+              const commentId = commentUrl.split("#issuecomment-")[1];
 
-              const prompt = `
-                You are the **Frontend Execution Agent**.
+              // 1.1 Extract user instructions (text after URL)
+              const userInstructions = commentBody
+                .replace(/\/agent-fe\s*/, "")
+                .replace(commentUrl, "")
+                .trim();
+
+              // 2. Fetch UI Spec comment
+              const commentRes = await github.rest.issues.getComment({
+                owner,
+                repo,
+                comment_id: Number(commentId)
+              });
+
+              const frozenUISpec = commentRes.data.body;
+
+              // 3. Create new branch
+              const branchName = `agent-fe-${issue_number}-${Date.now()}`;
+              execSync(`git checkout -b ${branchName}`);
+
+              // 4. Build system prompt and user prompt
+              const systemPrompt = `You are the **Frontend Execution Agent**.
+
+                Your task:
+                Generate COMPLETE frontend code and output it in a MACHINE-PARSABLE FORMAT.
                 
-                Your mission:
-                Implement the frontend strictly according to the **Frozen UI Specification** below.
-                
                 ====================
-                FROZEN UI SPEC (AUTHORITATIVE)
+                RULES (STRICT)
                 ====================
-                ${frozenUISpec}
-                
-                ====================
-                NON-NEGOTIABLE RULES
-                ====================
-                - UI SPEC IS A CONTRACT
-                - Do NOT modify interaction philosophy
-                - Do NOT add or remove UI elements
-                - Do NOT improve UX beyond the spec
-                - Do NOT add persistence
-                - Single Page Interface only
-                
-                ====================
-                TECH STACK
-                ====================
-                - Next.js (App Router)
-                - TypeScript
+                - UI spec is a contract
+                - No UI redesign
+                - No extra features
+                - No persistence
+                - Single Page Interface
+                - Next.js App Router
+                - TypeScript strict
                 - Tailwind CSS
                 
                 ====================
-                REQUIRED OUTPUT FORMAT
+                OUTPUT FORMAT (MANDATORY)
                 ====================
-                ### File Structure
-                ### Implementation Plan
-                ### Code (complete files, no pseudocode)
+                Return ONLY valid JSON in this exact shape:
                 
-                If the UI spec is ambiguous:
-                - Ask EXACTLY ONE clarification question
-                              `;
+                {
+                  "files": [
+                    {
+                      "path": "relative/path/to/file.tsx",
+                      "content": "full file content"
+                    }
+                  ]
+                }
+                
+                No markdown.
+                No explanations.
+                No extra text.`;
+                
+                const userPrompt = `
+                ====================
+                SOURCE OF TRUTH
+                ${commentUrl}
+                ====================
+                
+                ${frozenUISpec}
+                
+                ${userInstructions ? `====================
+                USER INSTRUCTIONS
+                ====================
+                ${userInstructions}` : ""}`;
 
+              // 5. Call model
               const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
                 headers: {
@@ -96,29 +143,82 @@ jobs:
                 },
                 body: JSON.stringify({
                   model: "google/gemini-3-flash-preview",
-                  messages: [{ role: "user", content: prompt }],
-                  temperature: 0.4
+                  messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userPrompt }
+                  ],
+                  temperature: 0.1
                 })
               });
 
               const data = await res.json();
-              if (!data.choices?.[0]) {
-                throw new Error("Frontend Agent returned invalid response");
+              const raw = data.choices?.[0]?.message?.content;
+
+              if (!raw) {
+                throw new Error("Model returned empty response.");
               }
 
+              // 5.1 Extract JSON from possible markdown code block
+              let jsonStr = raw.trim();
+              const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+              if (jsonMatch) {
+                jsonStr = jsonMatch[1].trim();
+              }
+
+              let parsed;
+              try {
+                parsed = JSON.parse(jsonStr);
+              } catch {
+                throw new Error("Model output is not valid JSON.");
+              }
+
+              // 6. Write files
+              for (const file of parsed.files) {
+                const fullPath = path.join(process.cwd(), file.path);
+                fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+                fs.writeFileSync(fullPath, file.content, "utf8");
+              }
+
+              // 7. Commit changes
+              execSync("git add .");
+              execSync(`git commit -m "feat: implement frontend from frozen UI spec (#${issue_number})"`);
+              execSync(`git push origin ${branchName}`);
+
+              // 8. Create PR
+              const pr = await github.rest.pulls.create({
+                owner,
+                repo,
+                title: `Frontend: implement frozen UI spec (#${issue_number})`,
+                head: branchName,
+                base: "main",
+                body: [
+                  "This PR was generated by Vibe Frontend Agent.",
+                  "",
+                  `UI Spec Source: ${commentUrl}`,
+                  "",
+                  "- UI spec treated as immutable contract",
+                  "- No UI inference or redesign",
+                  "- Ready for review"
+                ].join("\n")
+              });
+
+              // 9. Comment back to issue
               await github.rest.issues.createComment({
                 owner,
                 repo,
                 issue_number,
                 body: [
-                  "🛠️ Frontend Agent Output (Implementation Draft)",
+                  "✅ **Frontend implementation completed**",
                   "",
-                  data.choices[0].message.content,
+                  `🔗 PR: ${pr.data.html_url}`,
                   "",
-                  "---",
-                  "UI contract respected. No UI drift."
-                ].join("\\n")
+                  "Notes:",
+                  "- Frontend code generated and committed",
+                  "- UI spec respected strictly",
+                  "- No persistence added"
+                ].join("\n")
               });
             }
 
             await runFrontendAgent();
+
