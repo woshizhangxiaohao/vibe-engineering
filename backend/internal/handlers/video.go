@@ -36,7 +36,7 @@ func NewVideoHandler(repo *repository.VideoRepository, youtubeService *services.
 	}
 }
 
-// GetMetadata fetches basic video metadata.
+// GetMetadata fetches video metadata and AI analysis directly using Gemini.
 // POST /api/v1/videos/metadata
 // Request body: {"url": "https://youtube.com/watch?v=..."} or {"videoId": "..."}
 func (h *VideoHandler) GetMetadata(c *gin.Context) {
@@ -52,6 +52,7 @@ func (h *VideoHandler) GetMetadata(c *gin.Context) {
 		return
 	}
 
+<<<<<<< HEAD
 	// Determine video URL
 	var videoURL string
 	if req.URL != "" {
@@ -79,7 +80,7 @@ func (h *VideoHandler) GetMetadata(c *gin.Context) {
 	// Get metadata
 	metadata, err := h.youtubeService.GetVideoMetadata(c.Request.Context(), videoURL)
 	if err != nil {
-		h.log.Error("Failed to get video metadata",
+		h.log.Error("Failed to get metadata",
 			zap.Error(err),
 			zap.String("video_id", videoID),
 		)

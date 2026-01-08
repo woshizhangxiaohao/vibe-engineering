@@ -92,6 +92,21 @@ type MetadataResponse struct {
 	Duration     int    `json:"duration"` // in seconds
 }
 
+// MetadataWithAIResponse represents the video metadata response with AI analysis.
+type MetadataWithAIResponse struct {
+	Title       string       `json:"title"`
+	Author      string       `json:"author"`
+	Description string       `json:"description"`
+	AIAnalysis  string       `json:"aiAnalysis"`
+	Metadata    MetadataInfo `json:"metadata"`
+}
+
+// MetadataInfo contains additional metadata details.
+type MetadataInfo struct {
+	Duration  int    `json:"duration"`
+	Thumbnail string `json:"thumbnail"`
+}
+
 // AnalyzeRequest represents the request to analyze a video.
 type AnalyzeRequest struct {
 	VideoID        string `json:"videoId" binding:"required"`

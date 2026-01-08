@@ -429,6 +429,7 @@ func (s *YouTubeService) AnalyzeVideo(ctx context.Context, videoID, targetLangua
 	return analysisResult, nil
 }
 
+<<<<<<< HEAD
 // FetchYouTubeTranscript attempts to fetch real transcript from YouTube.
 // Returns the transcript text or an error if not available.
 func (s *YouTubeService) FetchYouTubeTranscript(ctx context.Context, videoID string) (string, error) {
@@ -825,6 +826,88 @@ func (s *YouTubeService) CallGeminiDirect(ctx context.Context, videoURL string) 
 - 尝试其他有字幕的视频`, videoID, videoURL)
 	
 	return errorMsg, nil
+}
+
+// GetMetadataWithAI directly analyzes YouTube URL using Gemini to extract all metadata and analysis.
+// This bypasses traditional metadata fetching and works even for private/restricted videos.
+// NOTE: This function may cause LLM hallucination. Use GetVideoMetadata instead for accurate data.
+func (s *YouTubeService) GetMetadataWithAI(ctx context.Context, videoURL string) (*VideoMetadataWithAI, error) {
+	videoID, err := s.ExtractVideoID(videoURL)
+	if err != nil {
+		return nil, err
+	}
+
+	prompt := fmt.Sprintf(`Analyze this YouTube video URL: %s
+
+Please extract and provide comprehensive information about this video in JSON format:
+{
+  "title": "video title",
+  "author": "channel/creator name",
+  "description": "brief description of the video content",
+  "aiAnalysis": "your AI analysis and summary of the video content",
+  "metadata": {
+    "duration": duration_in_seconds,
+    "thumbnail": "thumbnail URL (use format: https://img.youtube.com/vi/VIDEO_ID/maxresdefault.jpg)"
+  }
+}
+
+IMPORTANT:
+- If you cannot access the actual video content, make reasonable inferences from the URL and any available public information
+- Always provide all fields in the JSON response
+- aiAnalysis should be a comprehensive summary of what the video is about
+- duration should be a number (in seconds), use 0 if unknown
+- For thumbnail, use the standard YouTube thumbnail URL format`, videoURL)
+
+	response, err := s.callGemini(ctx, prompt)
+	if err != nil {
+		return nil, fmt.Errorf("AI service error: %w", err)
+	}
+
+	// Parse response - try to extract JSON from the response
+	var result VideoMetadataWithAI
+
+	// Clean up response - sometimes Gemini wraps JSON in markdown code blocks
+	cleanResponse := strings.TrimSpace(response)
+	if strings.HasPrefix(cleanResponse, "```json") {
+		cleanResponse = strings.TrimPrefix(cleanResponse, "```json")
+		cleanResponse = strings.TrimSuffix(cleanResponse, "```")
+		cleanResponse = strings.TrimSpace(cleanResponse)
+	} else if strings.HasPrefix(cleanResponse, "```") {
+		cleanResponse = strings.TrimPrefix(cleanResponse, "```")
+		cleanResponse = strings.TrimSuffix(cleanResponse, "```")
+		cleanResponse = strings.TrimSpace(cleanResponse)
+	}
+
+	if err := json.Unmarshal([]byte(cleanResponse), &result); err != nil {
+		s.log.Error("Failed to parse AI metadata response",
+			zap.Error(err),
+			zap.String("response", cleanResponse),
+		)
+		return nil, fmt.Errorf("failed to parse AI response: %w", err)
+	}
+
+	// Ensure we have the video ID
+	result.VideoID = videoID
+
+	// Set default thumbnail if not provided
+	if result.Metadata.Thumbnail == "" {
+		result.Metadata.Thumbnail = fmt.Sprintf("https://img.youtube.com/vi/%s/maxresdefault.jpg", videoID)
+	}
+
+	return &result, nil
+}
+
+// VideoMetadataWithAI represents comprehensive video metadata with AI analysis.
+type VideoMetadataWithAI struct {
+	VideoID     string `json:"videoId"`
+	Title       string `json:"title"`
+	Author      string `json:"author"`
+	Description string `json:"description"`
+	AIAnalysis  string `json:"aiAnalysis"`
+	Metadata    struct {
+		Duration  int    `json:"duration"`
+		Thumbnail string `json:"thumbnail"`
+	} `json:"metadata"`
 }
 
 // callGemini calls the Gemini API via OpenRouter.
