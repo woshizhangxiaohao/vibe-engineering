@@ -333,7 +333,17 @@ jobs:
               console.log(`📚 共读取 ${readFiles.length} 个系统文件作为项目约束`);
               console.log("");
 
-              // 3.2 Format project context
+              // 3.2 读取 STYLE_GUIDE.md 作为设计规范
+              let styleGuideContent = '';
+              const styleGuidePath = path.join(process.cwd(), "frontend/STYLE_GUIDE.md");
+              if (fs.existsSync(styleGuidePath)) {
+                styleGuideContent = fs.readFileSync(styleGuidePath, "utf8");
+                console.log(`✅ 读取样式指南: frontend/STYLE_GUIDE.md (${styleGuideContent.length} 字符)`);
+              } else {
+                console.log(`⚠️  样式指南不存在: frontend/STYLE_GUIDE.md`);
+              }
+
+              // 3.3 Format project context
               const projectContextText = Object.entries(projectContext)
                 .map(([filePath, content]) => {
                   const ext = filePath.split('.').pop();
@@ -350,7 +360,27 @@ jobs:
               const systemPrompt = `You are the **Frontend Execution Agent**.
               
               Your task:
-              Generate COMPLETE, BEAUTIFUL frontend code with excellent visual design and output it in a MACHINE-PARSABLE FORMAT.
+              Generate COMPLETE, BEAUTIFUL, POLISHED frontend code with **EXCELLENT VISUAL DESIGN** and output it in a MACHINE-PARSABLE FORMAT.
+              
+              ⚠️ **CRITICAL: BEAUTIFUL UI IS MANDATORY**
+              Your generated UI MUST be visually stunning, professional, and modern.
+              DO NOT generate plain, boring, or unpolished interfaces.
+              
+              ====================
+              🎨 VISUAL DESIGN RULES (HIGHEST PRIORITY)
+              ====================
+              - **shadcn/ui (New York style)**: Use Card, Button, Badge, Separator, Skeleton, Avatar, Tabs, Dialog, etc.
+              - **Cards**: ALL content areas MUST use Card component with rounded-xl shadow-lg
+              - **Shadows**: Apply shadow-md or shadow-lg to elevate important elements
+              - **Rounded corners**: Use rounded-lg or rounded-xl for cards, rounded-md for inputs
+              - **Spacing**: Use consistent gap-4, gap-6, p-4, p-6, p-8 for proper breathing room
+              - **Hover effects**: ALL interactive elements MUST have hover states (hover:shadow-lg, hover:scale-[1.02])
+              - **Transitions**: Use transition-all duration-200 for smooth animations
+              - **Colors**: Use semantic colors (bg-background, text-foreground, bg-primary, text-muted-foreground)
+              - **Typography**: Use font-medium, font-semibold for headings, text-sm text-muted-foreground for secondary text
+              - **Icons**: Use Lucide React icons with proper sizing (w-4 h-4, w-5 h-5)
+              - **Borders**: Use border border-border for subtle separation
+              - **Focus states**: Input fields MUST have focus:ring-2 focus:ring-primary
               
               ====================
               RULES (STRICT)
@@ -364,9 +394,9 @@ jobs:
               - TypeScript strict
               - Tailwind CSS
               - shadcn/ui component library (MANDATORY - use components from @/components/ui/)
-              - **BEAUTIFUL VISUAL DESIGN IS REQUIRED** - Apply proper spacing, colors, shadows, borders, and typography
-              - **DESIGN SYSTEM COMPLIANCE** - Follow the project's design system (STYLE_GUIDE.md) strictly
-              - **VISUAL AESTHETICS** - Create polished, professional, and visually appealing UI
+              - **DESIGN SYSTEM COMPLIANCE** - Follow the project's STYLE_GUIDE.md strictly
+              - **Space Grotesk font** - Already configured in the project
+              - **Lucide React icons** - Use for all iconography
               
               ====================
               PATH CONSTRAINTS (STRICT - NO EXCEPTIONS)
@@ -449,59 +479,78 @@ jobs:
                 ${projectContextText}
                 
                 ====================
-                DESIGN SYSTEM REQUIREMENTS (CRITICAL)
+                📚 STYLE GUIDE（设计规范 - 必须严格遵循）
                 ====================
-                如果上面包含了 STYLE_GUIDE.md 和 globals.css，你必须严格遵循项目的设计系统：
+                ${styleGuideContent || '未找到 STYLE_GUIDE.md 文件'}
                 
-                1. **颜色系统**（浅色主题）：
-                   - 背景：使用 bg-background（白色 #FFFFFF）
-                   - 卡片：使用 bg-card（白色 #FFFFFF）
-                   - 主色：使用 bg-primary（深绿色 #22C55E）
-                   - 文本：使用 text-foreground（深色 #0A0A0A）
-                   - 次要文本：使用 text-muted-foreground（灰色 #737373）
-                   - 边框：使用 border（浅灰 #E5E5E5）
-                   - 禁止硬编码颜色值，必须使用语义化 Tailwind 类
+                ====================
+                🎨 DESIGN SYSTEM REQUIREMENTS (CRITICAL - 美观性要求)
+                ====================
                 
-                2. **间距系统**：
-                   - 使用一致的间距：p-1 (4px), p-2 (8px), p-4 (16px), p-6 (24px), p-8 (32px)
-                   - 组件之间保持适当间距：gap-2, gap-4, gap-6 等
-                   - 容器使用适当的 padding：p-4, p-6, p-8
+                ⚠️ **重要警告**：生成的 UI 必须是**精美的、专业的、现代化的**！
+                不要生成简陋、单调、缺乏设计感的界面！
                 
-                3. **圆角和阴影**：
-                   - 卡片和按钮：rounded-lg 或 rounded-xl
-                   - 输入框：rounded-md
-                   - 卡片阴影：shadow-md 或 shadow-lg
-                   - 悬停效果：hover:shadow-lg
+                **UI 框架**：
+                - 组件库: shadcn/ui (New York 风格) - 必须使用！
+                - 基础颜色: Neutral
+                - 图标库: Lucide React
+                - 字体: Space Grotesk (主字体)
                 
-                4. **组件样式**：
-                   - 所有 shadcn/ui 组件使用默认样式，通过 className 进行定制
-                   - 使用 Card 组件包装内容区域
-                   - 按钮使用 variant="default" 或 variant="outline"
-                   - 输入框使用适当的尺寸和样式
+                **颜色系统**（浅色主题优先）：
+                - 背景：使用 bg-background（白色 #FFFFFF）
+                - 卡片：使用 bg-card（白色 #FFFFFF）
+                - 主色：使用 bg-primary（深绿色 #22C55E）
+                - 文本：使用 text-foreground（深色 #0A0A0A）
+                - 次要文本：使用 text-muted-foreground（灰色 #737373）
+                - 边框：使用 border（浅灰 #E5E5E5）
+                - ❌ 禁止硬编码颜色值，必须使用语义化 Tailwind 类
                 
-                5. **视觉层次**：
-                   - 使用 Card 组件创建内容区域
-                   - 使用分隔线（Separator）区分内容区块
-                   - 使用适当的标题层级（h1, h2, h3）
-                   - 使用 Badge 显示状态和标签
+                **视觉层次（必须实现）**：
+                - 使用 Card 组件创建内容区域，添加 shadow-md 或 shadow-lg 阴影
+                - 使用 rounded-lg 或 rounded-xl 圆角
+                - 组件之间使用 gap-4、gap-6 等间距
+                - 使用 hover:shadow-lg、hover:scale-[1.02] 等悬停效果
+                - 使用 transition-all duration-200 实现平滑过渡
                 
-                6. **交互反馈**：
-                   - 所有可交互元素必须有 hover 状态
-                   - 输入框必须有 focus 状态（使用 ring 颜色）
-                   - 按钮必须有 active 状态
-                   - 使用 transition 类实现平滑过渡
+                **交互反馈（必须实现）**：
+                - 所有可点击元素必须有 hover 状态变化
+                - 输入框必须有 focus:ring-2 focus:ring-primary 焦点状态
+                - 按钮必须有 active:scale-95 点击反馈
+                - 加载状态使用 Skeleton 组件或 Spinner
                 
-                7. **响应式设计**：
-                   - 使用 Tailwind 响应式前缀：sm:, md:, lg:, xl:
-                   - 确保移动端和桌面端都美观
-                   - 使用适当的断点进行布局调整
+                **布局规范**：
+                - 使用 flex、grid 布局，禁止使用 position: relative 作为主布局
+                - 响应式设计：使用 sm:、md:、lg:、xl: 前缀
+                - 容器使用 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8
+                - 内容区域使用适当的 padding：p-4、p-6、p-8
                 
-                8. **图标使用**：
-                   - 使用 Lucide React 图标库
-                   - 图标大小：w-4 h-4 (16px), w-5 h-5 (20px), w-6 h-6 (24px)
-                   - 图标颜色：使用 text-muted-foreground 或 text-foreground
+                **图标使用**：
+                - 使用 Lucide React 图标库
+                - 图标大小：w-4 h-4 (16px)、w-5 h-5 (20px)、w-6 h-6 (24px)
+                - 图标颜色：使用 text-muted-foreground 或 text-foreground
+                - 配合文本时使用 inline-flex items-center gap-2
                 
-                **重要**：生成的 UI 必须是美观的、专业的、符合现代设计标准的。不要生成简陋或未完成的界面。
+                **组件使用规范**：
+                - 必须从 @/components/ui/ 导入 shadcn/ui 组件
+                - Card、Button、Input、Badge、Separator、Skeleton 等组件必须使用
+                - 使用 cn() 工具函数合并类名
+                - 表单使用 react-hook-form + zod 验证
+                
+                **动画和过渡**：
+                - 页面加载使用 staggered animation（延迟动画）
+                - 列表项使用 animate-in fade-in slide-in-from-bottom
+                - 悬停效果使用 transition-all duration-200 ease-in-out
+                - 禁用动画使用 motion-reduce:transition-none
+                
+                🎯 **美观性检查清单**（必须全部满足）：
+                - [ ] 所有卡片有圆角和阴影
+                - [ ] 所有按钮有悬停效果
+                - [ ] 文本有合适的字体大小和颜色层次
+                - [ ] 图标与文本对齐且大小合适
+                - [ ] 间距均匀，布局整洁
+                - [ ] 响应式设计在各尺寸下都美观
+                - [ ] 加载状态有 skeleton 或 spinner
+                - [ ] 空状态有友好的提示
                 
                 ====================
                 SOURCE OF TRUTH${uiSpecs.length > 1 ? ` (${uiSpecs.length} UI Specs)` : ''}
@@ -521,49 +570,77 @@ jobs:
                 ${analysisResult.todolist.map((item, idx) => `${idx + 1}. ${item}`).join("\n")}` : ""}
                 
                 ====================
-                IMPLEMENTATION REQUIREMENTS
+                ⚡ IMPLEMENTATION REQUIREMENTS
                 ====================
-                1. 遵循现有代码架构模式（参考上面的系统文件）
-                2. 使用相同的包结构和命名约定
-                3. 遵循相同的代码风格和 TypeScript 类型定义
-                4. 使用相同的工具函数和 Hooks
-                5. 遵循相同的 API 调用模式
-                6. **必须使用 shadcn/ui 组件库**：
-                   - 从 @/components/ui/ 导入组件（如 Button, Input, Dialog 等）
-                   - 参考 components.json 和 button.tsx 了解组件使用模式
+                
+                🎯 **核心原则：生成的 UI 必须是精美的、专业的、现代化的！**
+                
+                1. **遵循项目架构**：
+                   - 遵循现有代码架构模式（参考上面的系统文件）
+                   - 使用相同的包结构和命名约定
+                   - 遵循相同的代码风格和 TypeScript 类型定义
+                   - 使用相同的工具函数和 Hooks
+                   - 遵循相同的 API 调用模式
+                
+                2. **必须使用 shadcn/ui 组件库（New York 风格）**：
+                   - 从 @/components/ui/ 导入组件（如 Button, Input, Card, Badge, Dialog 等）
+                   - 常用组件：Card, Button, Input, Badge, Separator, Skeleton, Avatar, Tabs
                    - **严禁修改或创建 frontend/components/ui/ 目录下的任何文件**
-                   - **严禁在 frontend/components/ui/ 目录下创建新文件**
                    - 如果需要自定义组件，在 frontend/components/ 目录下创建（不在 ui/ 子目录）
-                   - 使用 Tailwind CSS 通过 className 进行样式定制
-                   - 不要修改 shadcn/ui 组件的源代码
-                7. **样式文件管理**：
-                   - **严禁修改 frontend/app/globals.css 文件**
-                   - 如果需要自定义样式，在组件目录下创建独立的 CSS 文件：
-                     * CSS Modules: "frontend/components/my-component.module.css"
-                     * 或普通 CSS: "frontend/components/my-component.css"
-                     * 在组件文件中导入："import styles from './my-component.module.css'"
-                   - 优先使用 Tailwind CSS 工具类，只在必要时使用自定义 CSS
-                   - 样式文件应该与组件文件放在同一目录下
-                8. **必须遵循项目的设计系统**（参考 STYLE_GUIDE.md）：
-                   - 使用语义化颜色类：bg-background, text-foreground, bg-primary, text-primary-foreground 等
-                   - 使用项目的颜色方案：浅色主题优先，绿色主色调（浅色主题使用深绿色 #22C55E，深色主题使用亮绿色 #86EFAC）
-                   - 使用一致的间距：4px, 8px, 16px, 24px, 32px 等
-                   - 使用适当的圆角：rounded-sm, rounded-md, rounded-lg 等
-                   - 使用阴影提升层次感：shadow-sm, shadow-md, shadow-lg 等
-                   - 使用 Space Grotesk 字体（默认已配置）
+                   - 使用 cn() 工具函数合并类名
+                
+                3. **必须严格遵循 STYLE_GUIDE.md 设计规范**：
+                   - 使用语义化颜色类：bg-background, text-foreground, bg-primary 等
+                   - 使用项目颜色方案：浅色主题优先，绿色主色调
+                   - 使用 Space Grotesk 字体（已在项目中配置）
                    - 使用 Lucide React 图标库
-                9. **美观性要求**：
-                   - 确保所有组件有适当的间距和留白
-                   - 使用卡片、边框、阴影来创建视觉层次
-                   - 确保颜色对比度符合可访问性标准
-                   - 使用 hover、focus 状态提升交互体验
-                   - 确保响应式设计在不同屏幕尺寸下都美观
-                   - 避免硬编码颜色值，使用语义化 Tailwind 类
-                10. 所有文件路径必须在 frontend/ 目录下
-                11. **禁止修改的文件**：
+                
+                4. **🎨 美观性要求（关键 - 必须严格执行）**：
+                   
+                   📦 **卡片和容器**：
+                   - 所有内容区域使用 Card 组件包装
+                   - 卡片必须有圆角：rounded-lg 或 rounded-xl
+                   - 卡片必须有阴影：shadow-md 或 shadow-lg
+                   - 卡片悬停效果：hover:shadow-xl transition-shadow
+                   
+                   🎭 **交互效果**：
+                   - 按钮悬停：hover:bg-primary/90 或 hover:scale-105
+                   - 卡片悬停：hover:shadow-lg hover:scale-[1.02]
+                   - 输入框焦点：focus:ring-2 focus:ring-primary
+                   - 过渡动画：transition-all duration-200 ease-in-out
+                   
+                   📐 **间距和布局**：
+                   - 容器内边距：p-4、p-6、p-8
+                   - 元素间距：gap-2、gap-4、gap-6
+                   - 最大宽度：max-w-7xl mx-auto
+                   - 响应式内边距：px-4 sm:px-6 lg:px-8
+                   
+                   🎨 **颜色和对比**：
+                   - 主文本：text-foreground
+                   - 次要文本：text-muted-foreground
+                   - 边框：border border-border
+                   - 分隔线：<Separator className="my-4" />
+                   
+                   ✨ **动画效果**：
+                   - 页面加载动画：animate-in fade-in duration-500
+                   - 列表项渐入：animate-in slide-in-from-bottom-4
+                   - 骨架屏加载：<Skeleton className="h-4 w-full" />
+                   
+                   📱 **响应式设计**：
+                   - 使用 sm:、md:、lg:、xl: 前缀
+                   - 移动端优先：w-full md:w-1/2 lg:w-1/3
+                   - 网格布局：grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4
+                
+                5. **样式文件管理**：
+                   - **严禁修改 frontend/app/globals.css 文件**
+                   - 优先使用 Tailwind CSS 工具类
+                   - 如果需要自定义样式，在组件目录下创建 CSS Modules
+                
+                6. **禁止修改的文件**：
                    - frontend/app/globals.css（全局样式文件，只读）
                    - frontend/components/ui/*（shadcn/ui 组件，只读）
-                   - 如果需要样式，在组件目录下创建独立的 CSS 文件`;
+                
+                7. **所有文件路径必须在 frontend/ 目录下**`;
 
               // 5. Call model
               const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
