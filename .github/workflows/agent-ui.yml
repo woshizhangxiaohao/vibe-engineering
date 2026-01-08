@@ -108,7 +108,7 @@ jobs:
                   "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                  model: "google/gemini-2.5-flash-preview",
+                  model: "google/gemini-3-flash-preview",
                   messages: [{ role: "user", content: pmPrompt }],
                   temperature: 0.3
                 })
@@ -254,7 +254,7 @@ jobs:
                   "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                  model: "google/gemini-2.5-flash-preview",
+                  model: "google/gemini-3-flash-preview",
                   messages: [{ role: "user", content: uiPrompt }],
                   temperature: 0.5
                 })
