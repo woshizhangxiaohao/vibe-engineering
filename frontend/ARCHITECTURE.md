@@ -33,6 +33,8 @@ frontend/
 │
 ├── components/                   # React 组件
 │   ├── ui/                      # shadcn/ui 组件库（53个组件）
+│   │                            # ⚠️ 重要：此目录下的文件不允许修改，只能引用
+│   │                            # 如需修改样式或行为，请在外部通过 className 或包装组件实现
 │   ├── layout/                  # 布局组件
 │   │   └── main-layout.tsx
 │   ├── error-boundary.tsx       # 错误边界组件
@@ -209,11 +211,30 @@ const isMobile = useIsMobile();
 - ✅ 错误边界 (`components/error-boundary.tsx`)
 - ✅ 加载组件 (`components/loading.tsx`)
 
+**⚠️ 重要约束**:
+- **`components/ui/` 目录下的所有文件不允许修改**
+- 这些文件是 shadcn/ui 组件库的核心文件，只能引用使用
+- 如需修改样式：通过 `className` prop 在外部覆盖样式
+- 如需修改行为：创建包装组件在外部扩展功能
+- 如需更新组件：使用 `npx shadcn-ui@latest add [component]` 命令重新生成
+
 **使用示例**:
 ```tsx
 import { Button } from "@/components/ui/button";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Loading } from "@/components/loading";
+
+// ✅ 正确 - 通过 className 修改样式
+<Button className="w-full bg-custom-color">Click</Button>
+
+// ✅ 正确 - 创建包装组件扩展功能
+function CustomButton({ children, ...props }) {
+  return (
+    <Button {...props} className="custom-styles">
+      {children}
+    </Button>
+  );
+}
 ```
 
 ### 8. Next.js 特殊页面 (`app/`) ✅
@@ -918,9 +939,15 @@ export * from "./use-custom-hook";
 
 1. **UI 组件样式**
    - shadcn/ui 组件已包含基础样式
-   - 通过 `className` prop 扩展样式
+   - **⚠️ 禁止直接修改 `components/ui/` 目录下的组件文件**
+   - 通过 `className` prop 在外部扩展样式
    ```tsx
+   // ✅ 正确 - 通过 className 扩展样式
    <Button className="w-full md:w-auto">Click</Button>
+   
+   // ✅ 正确 - 使用 cn 函数合并样式
+   import { cn } from "@/lib/utils";
+   <Button className={cn("base-classes", customClasses)}>Click</Button>
    ```
 
 2. **布局组件样式**
@@ -1226,6 +1253,8 @@ frontend/types/index.ts
 
 4. **组件规范**
    - 使用 shadcn/ui 组件库
+   - **⚠️ 禁止修改 `components/ui/` 目录下的任何文件**
+   - 只能引用使用，如需修改请在外部通过 `className` 或包装组件实现
    - 遵循组件命名规范
    - 使用统一的样式方案（Tailwind CSS）
 
@@ -1251,6 +1280,7 @@ frontend/types/index.ts
 - [ ] 环境变量通过 `env` 对象访问
 - [ ] 添加必要的类型定义
 - [ ] 添加必要的注释和文档
+- [ ] **禁止修改 `components/ui/` 目录下的任何文件**
 
 ### 常见错误避免
 
@@ -1304,6 +1334,25 @@ frontend/types/index.ts
    // ✅ 正确 - 使用 API 客户端
    import { apiClient } from "@/lib/api";
    const data = await apiClient.get("/endpoint");
+   ```
+
+6. **❌ 不要修改 `components/ui/` 目录下的文件**
+   ```tsx
+   // ❌ 错误 - 直接修改 UI 组件库文件
+   // 修改 components/ui/button.tsx
+   
+   // ✅ 正确 - 通过 className 修改样式
+   import { Button } from "@/components/ui/button";
+   <Button className="w-full bg-custom-color">Click</Button>
+   
+   // ✅ 正确 - 创建包装组件扩展功能
+   function CustomButton({ children, ...props }) {
+     return (
+       <Button {...props} className="custom-styles">
+         {children}
+       </Button>
+     );
+   }
    ```
 
 ## 🔄 状态管理规范

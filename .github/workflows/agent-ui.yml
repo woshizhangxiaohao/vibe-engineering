@@ -74,14 +74,42 @@ jobs:
                 
                 ## UI Freeze Contract
                 
+                ## Visual Design System
+                - Color palette and semantic color usage
+                - Typography system
+                - Spacing scale
+                - Border radius and shadows
+                - Component styling guidelines
+                
+                --------------------
+                VISUAL DESIGN SPECIFICATION (REQUIRED)
+                --------------------
+                You MUST include visual design specifications:
+                
+                ## Visual Design System
+                - Color palette: Specify primary, secondary, accent colors using semantic names (e.g., primary, secondary, accent, destructive)
+                - Typography: Font families, sizes, weights, line heights
+                - Spacing: Consistent spacing scale (e.g., 4px, 8px, 16px, 24px, 32px)
+                - Border radius: Rounded corners specification (e.g., sm, md, lg)
+                - Shadows: Elevation and depth using shadows
+                - Layout: Grid system, container widths, responsive breakpoints
+                
+                ## Component Styling Guidelines
+                For each component, specify:
+                - Visual appearance (colors, borders, backgrounds)
+                - Size variants (if applicable)
+                - State styling (hover, active, disabled, focus)
+                - Spacing and padding
+                - Border radius and shadows
+                
                 --------------------
                 RULES (NON-NEGOTIABLE)
                 --------------------
                 - Do NOT write code
-                - Do NOT discuss visual styles or aesthetics
+                - DO specify visual styles and aesthetics (colors, spacing, typography, shadows, etc.)
                 - Do NOT design backend APIs or data models
-                - Do NOT use subjective language
-                - Do NOT add extra sections
+                - Use objective, measurable design specifications
+                - Do NOT add extra sections beyond the required format
                 `;
 
               const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {

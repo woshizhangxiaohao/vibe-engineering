@@ -3,8 +3,72 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    /* 浅色主题颜色变量 */
+    --background: 0 0% 100%;        /* 白色背景 */
+    --foreground: 0 0% 3.9%;        /* 深色文本 */
+    
+    --card: 0 0% 100%;               /* 白色卡片 */
+    --card-foreground: 0 0% 3.9%;
+    
+    --popover: 0 0% 100%;            /* 白色弹出层 */
+    --popover-foreground: 0 0% 3.9%;
+    
+    --primary: 142 71% 45%;          /* 深绿色主色 */
+    --primary-foreground: 0 0% 98%;  /* 白色文本 */
+    
+    --secondary: 0 0% 96.1%;         /* 浅灰次要色 */
+    --secondary-foreground: 0 0% 9%;
+    
+    --muted: 0 0% 96.1%;             /* 浅灰静音色 */
+    --muted-foreground: 0 0% 45.1%;
+    
+    --accent: 0 0% 96.1%;            /* 浅灰强调色 */
+    --accent-foreground: 0 0% 9%;
+    
+    --destructive: 0 84.2% 60.2%;    /* 红色危险色 */
+    --destructive-foreground: 0 0% 98%;
+    
+    --border: 0 0% 89.8%;            /* 浅灰边框 */
+    --input: 0 0% 89.8%;              /* 浅灰输入框 */
+    --ring: 142 71% 45%;              /* 深绿色焦点环 */
+    
+    --radius: 0.5rem;                /* 圆角 */
+  }
+
+  .dark {
+    /* 深色主题颜色变量（保留作为备选） */
+    --background: 0 0% 0%;           /* 纯黑背景 */
+    --foreground: 0 0% 98%;          /* 浅色文本 */
+    
+    --card: 0 0% 5%;                  /* 深灰卡片 */
+    --card-foreground: 0 0% 98%;
+    
+    --popover: 0 0% 5%;               /* 深灰弹出层 */
+    --popover-foreground: 0 0% 98%;
+    
+    --primary: 142 71% 73%;           /* 亮绿色主色 */
+    --primary-foreground: 0 0% 9%;
+    
+    --secondary: 0 0% 10%;            /* 深灰次要色 */
+    --secondary-foreground: 0 0% 98%;
+    
+    --muted: 0 0% 15%;                /* 深灰静音色 */
+    --muted-foreground: 0 0% 57%;
+    
+    --accent: 0 0% 10%;               /* 深灰强调色 */
+    --accent-foreground: 0 0% 98%;
+    
+    --destructive: 0 84% 60%;         /* 红色危险色 */
+    --destructive-foreground: 0 0% 98%;
+    
+    --border: 0 0% 12%;               /* 深灰边框 */
+    --input: 0 0% 10%;                /* 深灰输入框 */
+    --ring: 142 71% 73%;              /* 亮绿色焦点环 */
+  }
+
   body {
-    @apply antialiased;
+    @apply bg-background text-foreground antialiased;
   }
 }
 

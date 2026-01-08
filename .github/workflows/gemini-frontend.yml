@@ -284,6 +284,8 @@ jobs:
                     "frontend/middleware.ts",
                     "frontend/app/layout.tsx",
                     "frontend/app/page.tsx",
+                    "frontend/app/globals.css",
+                    "frontend/STYLE_GUIDE.md",
                     "frontend/lib/api/client.ts",
                     "frontend/lib/api/config.ts",
                     "frontend/lib/utils/utils.ts"
@@ -291,19 +293,21 @@ jobs:
                 }
               } else {
                 console.log("⚠️  ARCHITECTURE.md 不存在，使用默认系统文件列表");
-                // Fallback to default list
-                frontendSystemFiles = [
-                  "frontend/package.json",
-                  "frontend/tsconfig.json",
-                  "frontend/tailwind.config.ts",
-                  "frontend/components.json",
-                  "frontend/middleware.ts",
-                  "frontend/app/layout.tsx",
-                  "frontend/app/page.tsx",
-                  "frontend/lib/api/client.ts",
-                  "frontend/lib/api/config.ts",
-                  "frontend/lib/utils/utils.ts"
-                ];
+                  // Fallback to default list
+                  frontendSystemFiles = [
+                    "frontend/package.json",
+                    "frontend/tsconfig.json",
+                    "frontend/tailwind.config.ts",
+                    "frontend/components.json",
+                    "frontend/middleware.ts",
+                    "frontend/app/layout.tsx",
+                    "frontend/app/page.tsx",
+                    "frontend/app/globals.css",
+                    "frontend/STYLE_GUIDE.md",
+                    "frontend/lib/api/client.ts",
+                    "frontend/lib/api/config.ts",
+                    "frontend/lib/utils/utils.ts"
+                  ];
               }
 
               // 3.1 Read system files content
@@ -346,7 +350,7 @@ jobs:
               const systemPrompt = `You are the **Frontend Execution Agent**.
               
               Your task:
-              Generate COMPLETE frontend code and output it in a MACHINE-PARSABLE FORMAT.
+              Generate COMPLETE, BEAUTIFUL frontend code with excellent visual design and output it in a MACHINE-PARSABLE FORMAT.
               
               ====================
               RULES (STRICT)
@@ -360,6 +364,9 @@ jobs:
               - TypeScript strict
               - Tailwind CSS
               - shadcn/ui component library (MANDATORY - use components from @/components/ui/)
+              - **BEAUTIFUL VISUAL DESIGN IS REQUIRED** - Apply proper spacing, colors, shadows, borders, and typography
+              - **DESIGN SYSTEM COMPLIANCE** - Follow the project's design system (STYLE_GUIDE.md) strictly
+              - **VISUAL AESTHETICS** - Create polished, professional, and visually appealing UI
               
               ====================
               PATH CONSTRAINTS (STRICT - NO EXCEPTIONS)
@@ -419,6 +426,61 @@ jobs:
                 ${projectContextText}
                 
                 ====================
+                DESIGN SYSTEM REQUIREMENTS (CRITICAL)
+                ====================
+                如果上面包含了 STYLE_GUIDE.md 和 globals.css，你必须严格遵循项目的设计系统：
+                
+                1. **颜色系统**（浅色主题）：
+                   - 背景：使用 bg-background（白色 #FFFFFF）
+                   - 卡片：使用 bg-card（白色 #FFFFFF）
+                   - 主色：使用 bg-primary（深绿色 #22C55E）
+                   - 文本：使用 text-foreground（深色 #0A0A0A）
+                   - 次要文本：使用 text-muted-foreground（灰色 #737373）
+                   - 边框：使用 border（浅灰 #E5E5E5）
+                   - 禁止硬编码颜色值，必须使用语义化 Tailwind 类
+                
+                2. **间距系统**：
+                   - 使用一致的间距：p-1 (4px), p-2 (8px), p-4 (16px), p-6 (24px), p-8 (32px)
+                   - 组件之间保持适当间距：gap-2, gap-4, gap-6 等
+                   - 容器使用适当的 padding：p-4, p-6, p-8
+                
+                3. **圆角和阴影**：
+                   - 卡片和按钮：rounded-lg 或 rounded-xl
+                   - 输入框：rounded-md
+                   - 卡片阴影：shadow-md 或 shadow-lg
+                   - 悬停效果：hover:shadow-lg
+                
+                4. **组件样式**：
+                   - 所有 shadcn/ui 组件使用默认样式，通过 className 进行定制
+                   - 使用 Card 组件包装内容区域
+                   - 按钮使用 variant="default" 或 variant="outline"
+                   - 输入框使用适当的尺寸和样式
+                
+                5. **视觉层次**：
+                   - 使用 Card 组件创建内容区域
+                   - 使用分隔线（Separator）区分内容区块
+                   - 使用适当的标题层级（h1, h2, h3）
+                   - 使用 Badge 显示状态和标签
+                
+                6. **交互反馈**：
+                   - 所有可交互元素必须有 hover 状态
+                   - 输入框必须有 focus 状态（使用 ring 颜色）
+                   - 按钮必须有 active 状态
+                   - 使用 transition 类实现平滑过渡
+                
+                7. **响应式设计**：
+                   - 使用 Tailwind 响应式前缀：sm:, md:, lg:, xl:
+                   - 确保移动端和桌面端都美观
+                   - 使用适当的断点进行布局调整
+                
+                8. **图标使用**：
+                   - 使用 Lucide React 图标库
+                   - 图标大小：w-4 h-4 (16px), w-5 h-5 (20px), w-6 h-6 (24px)
+                   - 图标颜色：使用 text-muted-foreground 或 text-foreground
+                
+                **重要**：生成的 UI 必须是美观的、专业的、符合现代设计标准的。不要生成简陋或未完成的界面。
+                
+                ====================
                 SOURCE OF TRUTH${uiSpecs.length > 1 ? ` (${uiSpecs.length} UI Specs)` : ''}
                 ====================
                 ${commentUrls.map((url, idx) => `${idx + 1}. ${url}`).join("\n")}
@@ -448,7 +510,22 @@ jobs:
                    - 参考 components.json 和 button.tsx 了解组件使用模式
                    - 不要创建自定义基础组件，优先使用 shadcn/ui 组件
                    - 使用 Tailwind CSS 进行样式定制
-                7. 所有文件路径必须在 frontend/ 目录下`;
+                7. **必须遵循项目的设计系统**（参考 STYLE_GUIDE.md）：
+                   - 使用语义化颜色类：bg-background, text-foreground, bg-primary, text-primary-foreground 等
+                   - 使用项目的颜色方案：浅色主题优先，绿色主色调（浅色主题使用深绿色 #22C55E，深色主题使用亮绿色 #86EFAC）
+                   - 使用一致的间距：4px, 8px, 16px, 24px, 32px 等
+                   - 使用适当的圆角：rounded-sm, rounded-md, rounded-lg 等
+                   - 使用阴影提升层次感：shadow-sm, shadow-md, shadow-lg 等
+                   - 使用 Space Grotesk 字体（默认已配置）
+                   - 使用 Lucide React 图标库
+                8. **美观性要求**：
+                   - 确保所有组件有适当的间距和留白
+                   - 使用卡片、边框、阴影来创建视觉层次
+                   - 确保颜色对比度符合可访问性标准
+                   - 使用 hover、focus 状态提升交互体验
+                   - 确保响应式设计在不同屏幕尺寸下都美观
+                   - 避免硬编码颜色值，使用语义化 Tailwind 类
+                9. 所有文件路径必须在 frontend/ 目录下`;
 
               // 5. Call model
               const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
