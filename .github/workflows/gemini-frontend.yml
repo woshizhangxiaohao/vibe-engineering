@@ -359,6 +359,7 @@ jobs:
               - Next.js App Router
               - TypeScript strict
               - Tailwind CSS
+              - shadcn/ui component library (MANDATORY - use components from @/components/ui/)
               
               ====================
               PATH CONSTRAINTS (STRICT - NO EXCEPTIONS)
@@ -442,7 +443,11 @@ jobs:
                 3. 遵循相同的代码风格和 TypeScript 类型定义
                 4. 使用相同的工具函数和 Hooks
                 5. 遵循相同的 API 调用模式
-                6. 使用 shadcn/ui 组件库
+                6. **必须使用 shadcn/ui 组件库**：
+                   - 从 @/components/ui/ 导入组件（如 Button, Input, Dialog 等）
+                   - 参考 components.json 和 button.tsx 了解组件使用模式
+                   - 不要创建自定义基础组件，优先使用 shadcn/ui 组件
+                   - 使用 Tailwind CSS 进行样式定制
                 7. 所有文件路径必须在 frontend/ 目录下`;
 
               // 5. Call model
@@ -453,7 +458,7 @@ jobs:
                   "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                  model: "google/gemini-3-flash-preview",
+                  model: "anthropic/claude-sonnet-4.5",
                   messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: userPrompt }

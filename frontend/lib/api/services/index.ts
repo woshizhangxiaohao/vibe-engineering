@@ -1,1 +1,1 @@
-export * from './video.service';
+export * from './pomodoro.service';

@@ -15,7 +15,6 @@ import {
   useUpdatePomodoro,
   useDeletePomodoro,
 } from "@/lib/api";
-import type { CreatePomodoroRequest } from "./services/pomodoro.service";
 
 /**
  * 示例 1: 使用服务层直接调用
