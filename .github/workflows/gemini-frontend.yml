@@ -375,15 +375,38 @@ jobs:
               You CANNOT create files outside the frontend/ directory.
               You CANNOT create files in backend/, root, or any other directory.
               
+              CRITICAL FORBIDDEN PATHS:
+              - ❌ "frontend/components/ui/" - COMPLETELY FORBIDDEN
+              - This directory contains shadcn/ui components that are READ-ONLY
+              - You MUST NOT create, modify, or delete ANY files in frontend/components/ui/
+              - You can ONLY import and use components from @/components/ui/
+              - If you need custom components, create them in frontend/components/ (outside ui/)
+              
+              - ❌ "frontend/app/globals.css" - COMPLETELY FORBIDDEN
+              - This file contains global styles managed by project maintainers
+              - You MUST NOT modify globals.css
+              - If you need custom styles, create CSS files in your component directory:
+                * Use CSS Modules: "frontend/components/my-component.module.css"
+                * Or regular CSS: "frontend/components/my-component.css"
+                * Import styles in your component file
+              
               Examples:
               - ✅ "frontend/app/page.tsx"
-              - ✅ "frontend/components/ui/button.tsx"
+              - ✅ "frontend/components/my-component.tsx"
+              - ✅ "frontend/components/my-component.module.css" (component-specific styles)
+              - ✅ "frontend/components/layout/header.tsx"
+              - ✅ "frontend/components/layout/header.module.css" (layout-specific styles)
+              - ❌ "frontend/components/ui/button.tsx" (REJECTED - ui/ is read-only)
+              - ❌ "frontend/components/ui/custom-button.tsx" (REJECTED - ui/ is read-only)
+              - ❌ "frontend/app/globals.css" (REJECTED - globals.css is read-only)
               - ❌ "app/page.tsx" (REJECTED - outside frontend/)
               - ❌ "components/button.tsx" (REJECTED - outside frontend/)
               - ❌ "backend/api/handler.go" (REJECTED - backend files not allowed)
               - ❌ "../frontend/app/page.tsx" (REJECTED - path traversal not allowed)
               
               ONLY files inside frontend/ directory are allowed.
+              frontend/components/ui/ directory is STRICTLY FORBIDDEN.
+              frontend/app/globals.css is STRICTLY FORBIDDEN.
               
               ====================
               OUTPUT FORMAT (MANDATORY - CRITICAL)
@@ -508,9 +531,20 @@ jobs:
                 6. **必须使用 shadcn/ui 组件库**：
                    - 从 @/components/ui/ 导入组件（如 Button, Input, Dialog 等）
                    - 参考 components.json 和 button.tsx 了解组件使用模式
-                   - 不要创建自定义基础组件，优先使用 shadcn/ui 组件
-                   - 使用 Tailwind CSS 进行样式定制
-                7. **必须遵循项目的设计系统**（参考 STYLE_GUIDE.md）：
+                   - **严禁修改或创建 frontend/components/ui/ 目录下的任何文件**
+                   - **严禁在 frontend/components/ui/ 目录下创建新文件**
+                   - 如果需要自定义组件，在 frontend/components/ 目录下创建（不在 ui/ 子目录）
+                   - 使用 Tailwind CSS 通过 className 进行样式定制
+                   - 不要修改 shadcn/ui 组件的源代码
+                7. **样式文件管理**：
+                   - **严禁修改 frontend/app/globals.css 文件**
+                   - 如果需要自定义样式，在组件目录下创建独立的 CSS 文件：
+                     * CSS Modules: `frontend/components/my-component.module.css`
+                     * 或普通 CSS: `frontend/components/my-component.css`
+                     * 在组件文件中导入：`import styles from './my-component.module.css'`
+                   - 优先使用 Tailwind CSS 工具类，只在必要时使用自定义 CSS
+                   - 样式文件应该与组件文件放在同一目录下
+                8. **必须遵循项目的设计系统**（参考 STYLE_GUIDE.md）：
                    - 使用语义化颜色类：bg-background, text-foreground, bg-primary, text-primary-foreground 等
                    - 使用项目的颜色方案：浅色主题优先，绿色主色调（浅色主题使用深绿色 #22C55E，深色主题使用亮绿色 #86EFAC）
                    - 使用一致的间距：4px, 8px, 16px, 24px, 32px 等
@@ -518,14 +552,18 @@ jobs:
                    - 使用阴影提升层次感：shadow-sm, shadow-md, shadow-lg 等
                    - 使用 Space Grotesk 字体（默认已配置）
                    - 使用 Lucide React 图标库
-                8. **美观性要求**：
+                9. **美观性要求**：
                    - 确保所有组件有适当的间距和留白
                    - 使用卡片、边框、阴影来创建视觉层次
                    - 确保颜色对比度符合可访问性标准
                    - 使用 hover、focus 状态提升交互体验
                    - 确保响应式设计在不同屏幕尺寸下都美观
                    - 避免硬编码颜色值，使用语义化 Tailwind 类
-                9. 所有文件路径必须在 frontend/ 目录下`;
+                10. 所有文件路径必须在 frontend/ 目录下
+                11. **禁止修改的文件**：
+                   - frontend/app/globals.css（全局样式文件，只读）
+                   - frontend/components/ui/*（shadcn/ui 组件，只读）
+                   - 如果需要样式，在组件目录下创建独立的 CSS 文件`;
 
               // 5. Call model
               const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -654,6 +692,20 @@ jobs:
                 // STRICT CHECK: Path MUST start with "frontend/" - NO AUTO-FIX
                 if (!normalizedPath.startsWith("frontend/")) {
                   fileChanges.errors.push(`路径被拒绝: ${file.path} - 只允许在 frontend/ 目录下创建文件`);
+                  continue;
+                }
+                
+                // CRITICAL: FORBIDDEN PATH - components/ui/ directory is READ-ONLY
+                // shadcn/ui components MUST NOT be modified, only imported and used
+                if (normalizedPath.startsWith("frontend/components/ui/")) {
+                  fileChanges.errors.push(`路径被拒绝: ${file.path} - components/ui/ 目录下的文件是只读的，禁止修改。只能从 @/components/ui/ 导入使用，不能修改或创建新文件。`);
+                  continue;
+                }
+                
+                // CRITICAL: FORBIDDEN FILE - globals.css is READ-ONLY
+                // Global styles are managed by the project maintainers
+                if (normalizedPath === "frontend/app/globals.css" || normalizedPath.endsWith("/globals.css")) {
+                  fileChanges.errors.push(`路径被拒绝: ${file.path} - globals.css 文件是只读的，禁止修改。如果需要自定义样式，请在组件目录下创建独立的 CSS 文件（如 component.module.css 或 component.css）。`);
                   continue;
                 }
                 
