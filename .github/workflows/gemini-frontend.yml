@@ -411,7 +411,8 @@ jobs:
                     { role: "system", content: systemPrompt },
                     { role: "user", content: userPrompt }
                   ],
-                  temperature: 0.3
+                  temperature: 0.3,
+                  max_tokens: 640000
                 })
               });
 
@@ -483,25 +484,77 @@ jobs:
                 let fixedJson = jsonStr;
                 let fixed = false;
                 
-                // Remove trailing commas before } or ]
+                // Fix 1: Remove trailing commas before } or ]
                 fixedJson = fixedJson.replace(/,(\s*[}\]])/g, '$1');
                 if (fixedJson !== jsonStr) {
                   fixed = true;
                   console.log("🔧 Attempted fix: Removed trailing commas");
                 }
                 
-                // Try parsing fixed JSON
-                if (fixed) {
+                // Fix 2: Handle truncated JSON (incomplete content)
+                // Check if JSON was truncated mid-string
+                const lastQuote = fixedJson.lastIndexOf('"');
+                const lastBrace = fixedJson.lastIndexOf('}');
+                const lastBracket = fixedJson.lastIndexOf(']');
+                
+                if (lastQuote > lastBrace && lastQuote > lastBracket) {
+                  console.log("🔧 Detected truncated JSON, attempting to fix...");
+                  // Find the last complete file entry
+                  const filesMatch = fixedJson.match(/"files"\s*:\s*\[/);
+                  if (filesMatch) {
+                    // Find all complete file objects
+                    const completeFiles = [];
+                    const filePattern = /\{\s*"path"\s*:\s*"([^"]+)"\s*,\s*"content"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}/g;
+                    let match;
+                    while ((match = filePattern.exec(fixedJson)) !== null) {
+                      completeFiles.push({
+                        path: match[1],
+                        content: match[2].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+                      });
+                    }
+                    
+                    if (completeFiles.length > 0) {
+                      console.log(`🔧 Recovered ${completeFiles.length} complete files from truncated JSON`);
+                      parsed = { files: completeFiles };
+                      fixed = true;
+                    }
+                  }
+                }
+                
+                // Try parsing fixed JSON if not already recovered
+                if (!parsed && fixed) {
                   try {
                     parsed = JSON.parse(fixedJson);
                     console.log("✅ Fixed JSON parsed successfully");
                     console.log(`📦 Parsed object has ${parsed.files?.length || 0} files`);
                   } catch (fixError) {
                     console.error("❌ Fixed JSON still invalid:", fixError.message);
-                    throw new Error(`Model output is not valid JSON: ${parseError.message}. Fixed version also failed: ${fixError.message}`);
                   }
-                } else {
-                  throw new Error(`Model output is not valid JSON: ${parseError.message}`);
+                }
+                
+                if (!parsed) {
+                  // Last resort: try to extract any complete file objects
+                  console.log("🔧 Last resort: extracting individual file objects...");
+                  const filePattern = /\{\s*"path"\s*:\s*"([^"]+)"\s*,\s*"content"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}/g;
+                  const recoveredFiles = [];
+                  let match;
+                  while ((match = filePattern.exec(jsonStr)) !== null) {
+                    try {
+                      recoveredFiles.push({
+                        path: match[1],
+                        content: match[2].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+                      });
+                    } catch (e) {
+                      console.log(`⚠️ Failed to parse file: ${match[1]}`);
+                    }
+                  }
+                  
+                  if (recoveredFiles.length > 0) {
+                    console.log(`🔧 Recovered ${recoveredFiles.length} files from malformed JSON`);
+                    parsed = { files: recoveredFiles };
+                  } else {
+                    throw new Error(`Model output is not valid JSON: ${parseError.message}. Could not recover any files.`);
+                  }
                 }
               }
 
