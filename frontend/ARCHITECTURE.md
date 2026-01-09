@@ -1214,9 +1214,15 @@ frontend/app/layout.tsx
 frontend/app/page.tsx
 frontend/components.json
 frontend/components/AppContainer.tsx
+frontend/components/AuthPanel.tsx
+frontend/components/MetadataCard.tsx
+frontend/components/QuotaMonitor.tsx
+frontend/components/SearchInputGroup.tsx
+frontend/components/Sidebar.tsx
 frontend/components/SummaryPanel.tsx
 frontend/components/TranscriptionPanel.tsx
 frontend/components/VideoDetailView.tsx
+frontend/components/YoutubeDashboard.tsx
 frontend/components/ui/button.tsx
 frontend/hooks/index.ts
 frontend/lib/api/client.ts

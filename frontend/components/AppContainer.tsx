@@ -4,13 +4,14 @@ import React, { useState, useEffect } from 'react';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Loader2, History, Clock, ArrowRight, Sparkles } from "lucide-react";
+import { Search, Loader2, History, Clock, ArrowRight, Sparkles, Database } from "lucide-react";
 import { videoApi } from '@/lib/api/endpoints';
 import { VideoMetadata, HistoryItem } from '@/types/video';
 import { toast } from '@/lib/utils/toast';
 import VideoDetailView from './VideoDetailView';
 import { Card, CardContent } from "@/components/ui/card";
 import Header from './Header';
+import YoutubeDashboard from './YoutubeDashboard';
 
 export default function AppContainer() {
   const [url, setUrl] = useState('');
@@ -18,6 +19,7 @@ export default function AppContainer() {
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [activeView, setActiveView] = useState<{ metadata: VideoMetadata; jobId: string } | null>(null);
+  const [showDashboard, setShowDashboard] = useState(false);
 
   useEffect(() => {
     const loadHistory = async () => {
@@ -37,12 +39,8 @@ export default function AppContainer() {
 
     setLoading(true);
     try {
-      // 1. Get Metadata
       const metadata = await videoApi.getMetadata(url);
-      
-      // 2. Start Analysis
       const { jobId } = await videoApi.analyze(metadata.videoId, language);
-      
       setActiveView({ metadata, jobId });
       toast.success("Analysis started!");
     } catch (error: any) {
@@ -51,6 +49,10 @@ export default function AppContainer() {
       setLoading(false);
     }
   };
+
+  if (showDashboard) {
+    return <YoutubeDashboard />;
+  }
 
   if (activeView) {
     return <VideoDetailView 
@@ -62,14 +64,10 @@ export default function AppContainer() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation */}
       <Header />
 
-      {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-16 md:pt-40 md:pb-24">
-        {/* Hero Section */}
         <div className="text-center mb-16 md:mb-20 space-y-6">
-          {/* Status Badge */}
           <div 
             className="inline-flex items-center rounded-full px-4 py-2 text-sm font-medium bg-secondary animate-fade-in-up"
             style={{ animationDelay: '0ms' }}
@@ -79,7 +77,6 @@ export default function AppContainer() {
             <span className="ml-2 flex h-2 w-2 rounded-full bg-primary animate-pulse" />
           </div>
           
-          {/* Main Heading */}
           <h1 
             className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black tracking-tighter leading-none animate-fade-in-up"
             style={{ animationDelay: '100ms' }}
@@ -89,22 +86,30 @@ export default function AppContainer() {
             <span className="text-primary">INTELLIGENCE.</span>
           </h1>
           
-          {/* Subheading */}
           <p 
             className="mx-auto max-w-xl text-lg md:text-xl text-muted-foreground leading-relaxed animate-fade-in-up"
             style={{ animationDelay: '200ms' }}
           >
             Transform any YouTube video into structured insights, summaries, and searchable transcripts in seconds.
           </p>
+
+          <div className="pt-4 animate-fade-in-up" style={{ animationDelay: '250ms' }}>
+            <Button 
+              variant="secondary" 
+              onClick={() => setShowDashboard(true)}
+              className="rounded-full px-8 h-12 border-0 bg-secondary hover:bg-secondary/80 text-primary font-semibold"
+            >
+              <Database className="h-4 w-4 mr-2" />
+              Open Data Dashboard
+            </Button>
+          </div>
         </div>
 
-        {/* Search Form */}
         <form 
           onSubmit={handleStartAnalysis} 
           className="space-y-4 mb-20 md:mb-28 animate-fade-in-up"
           style={{ animationDelay: '300ms' }}
         >
-          {/* Main Input */}
           <div className="relative flex items-center">
             <Search className="absolute left-5 text-muted-foreground h-5 w-5 transition-colors pointer-events-none z-10" />
             <Input
@@ -131,7 +136,6 @@ export default function AppContainer() {
             </Button>
           </div>
           
-          {/* Language Select */}
           <div className="flex justify-center">
             <Select value={language} onValueChange={setLanguage}>
               <SelectTrigger className="w-[180px] md:w-[200px] rounded-lg h-10 border-0 bg-muted hover:bg-muted/80 focus:bg-background focus:outline-none transition-colors">
@@ -147,12 +151,10 @@ export default function AppContainer() {
           </div>
         </form>
 
-        {/* History Section */}
         <div 
           className="space-y-6 md:space-y-8 animate-fade-in-up"
           style={{ animationDelay: '400ms' }}
         >
-          {/* Section Header */}
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
               <History className="h-5 w-5 text-muted-foreground" />
@@ -163,7 +165,6 @@ export default function AppContainer() {
             </div>
           </div>
 
-          {/* History Grid */}
           {history.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
               {history.map((item, index) => (
@@ -173,7 +174,6 @@ export default function AppContainer() {
                   onClick={() => setUrl(`https://youtube.com/watch?v=${item.videoId}`)}
                   style={{ animationDelay: `${500 + index * 100}ms` }}
                 >
-                  {/* Thumbnail */}
                   <div className="aspect-video relative overflow-hidden bg-muted">
                     {item.thumbnailUrl ? (
                       <img 
@@ -186,7 +186,6 @@ export default function AppContainer() {
                         <span className="text-muted-foreground text-sm">No thumbnail</span>
                       </div>
                     )}
-                    {/* Hover Overlay */}
                     <div className="absolute inset-0 bg-primary/90 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
                       <div className="h-12 w-12 rounded-full bg-white flex items-center justify-center">
                         <Search className="text-primary h-5 w-5" />
@@ -194,7 +193,6 @@ export default function AppContainer() {
                     </div>
                   </div>
                   
-                  {/* Content */}
                   <CardContent className="p-4 md:p-5">
                     <h3 className="font-semibold line-clamp-2 mb-3 group-hover:text-primary transition-colors duration-200">
                       {item.title}
@@ -212,7 +210,6 @@ export default function AppContainer() {
               ))}
             </div>
           ) : (
-            /* Empty State */
             <div className="text-center py-16 md:py-24 rounded-xl border-0 bg-muted/30">
               <div className="h-16 w-16 rounded-xl bg-muted mx-auto mb-4 flex items-center justify-center">
                 <History className="h-8 w-8 text-muted-foreground" />
@@ -224,7 +221,6 @@ export default function AppContainer() {
         </div>
       </main>
 
-      {/* Footer */}
       <footer className="border-t border-border/50 py-8 mt-16">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">

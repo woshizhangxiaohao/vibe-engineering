@@ -1,3 +1,49 @@
+## 2026-01-09T16:18:19.648Z - Issue #171
+
+**UI Spec (1):**
+1. https://github.com/lessthanno/vibe-engineering-playbook/issues/171#issuecomment-3729452929
+**用户指令:** 请实现 YouTube 视频信息查询界面：
+- 严格遵循 Base.org 设计系统
+- 使用 shadcn/ui 组件
+- 集成后端 API (/api/v1/youtube/video, /api/v1/youtube/playlist, /api/v1/youtube/captions)
+- 实现 OAuth 授权流程
+- 显示配额监控
+- 响应式设计
+
+### 📝 需求分析
+本需求旨在构建一个基于 Base.org 极简风格的 YouTube 数据提取中心，通过集成 YouTube Data API v3 实现视频元数据、播放列表及字幕的结构化展示。系统核心在于 OAuth 2.0 授权流程的闭环、API 配额的实时监控以及严格遵循无阴影、高留白的扁平化视觉规范。
+
+### ✅ 已完成
+- 1. 搭建基于侧边栏 + 中心内容区的响应式布局框架（AppContainer.tsx, Sidebar.tsx）
+- 2. 实现搜索输入组件，支持解析逻辑、Loading及校验（SearchInputGroup.tsx）
+- 4. 对接后端接口并实现骨架屏与缓存状态（endpoints.ts, YoutubeDashboard.tsx）
+- 5. 实现 OAuth 2.0 授权流程及相关 UI 组件（AuthPanel.tsx）
+- 6. 在侧边栏底部开发 API 配额监控器（QuotaMonitor.tsx）
+- 7. 对接播放列表与字幕接口并处理状态（endpoints.ts, YoutubeDashboard.tsx）
+- 3. 开发视频元数据卡片（Metadata Card）
+
+### ❌ 未完成
+- 8. 实现全局异常处理机制（针对 429、404 等边界情况的 Alert 提示）
+- 9. 优化移动端适配（Sheet/Drawer 菜单及堆叠布局）
+- 10. 执行样式走查（全局无阴影、特定圆角及字体配置）
+
+### 📁 文件变更
+
+**新建文件 (6):**
+- `frontend/components/Sidebar.tsx`
+- `frontend/components/QuotaMonitor.tsx`
+- `frontend/components/SearchInputGroup.tsx`
+- `frontend/components/MetadataCard.tsx`
+- `frontend/components/AuthPanel.tsx`
+- `frontend/components/YoutubeDashboard.tsx`
+
+**修改文件 (3):**
+- `frontend/types/video.ts`
+- `frontend/lib/api/endpoints.ts`
+- `frontend/components/AppContainer.tsx`
+
+
+---
 ## 2026-01-08T06:56:04.841Z - Issue #161
 
 **UI Specs (2):**

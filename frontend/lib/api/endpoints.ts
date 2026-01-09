@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import { VideoMetadata, AnalysisResult, HistoryItem } from "@/types/video";
+import { VideoMetadata, AnalysisResult, HistoryItem, YoutubeMetadata, PlaylistVideo, CaptionTrack, QuotaStatus } from "@/types/video";
 
 export const videoApi = {
   getMetadata: (url: string) => 
@@ -18,7 +18,23 @@ export const videoApi = {
     apiClient.post<{ downloadUrl: string; fileName: string }>("/v1/videos/export", { videoId, format }),
 };
 
-// Keep existing contentApi for backward compatibility
+export const youtubeApi = {
+  getVideo: (idOrUrl: string) =>
+    apiClient.get<YoutubeMetadata & { cached: boolean }>("/v1/youtube/video", { params: { id: idOrUrl } }),
+  
+  getPlaylist: (playlistId: string) =>
+    apiClient.get<{ items: PlaylistVideo[]; cached: boolean }>("/v1/youtube/playlist", { params: { playlistId } }),
+  
+  getCaptions: (videoId: string) =>
+    apiClient.get<{ captions: CaptionTrack[]; cached: boolean }>("/v1/youtube/captions", { params: { videoId } }),
+  
+  getQuota: () =>
+    apiClient.get<QuotaStatus>("/v1/youtube/quota"),
+    
+  getAuthUrl: () =>
+    apiClient.get<{ url: string }>("/v1/youtube/auth/url"),
+};
+
 export const contentApi = {
   parseUrl: (url: string) =>
     apiClient.post<any>("/parse", { url }),
