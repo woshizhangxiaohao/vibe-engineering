@@ -97,6 +97,39 @@ graph LR
 
 ---
 
+## 📚 文档结构
+
+项目文档已重新组织，更加清晰专业：
+
+```
+vibe-engineering-playbook/
+├── README.md                           # 项目主文档
+├── DEPLOYMENT.md                       # 部署指南
+├── docs/
+│   ├── workflow/                       # 工作流程文档
+│   │   ├── agent-protocol.md          # AI Agent 协议
+│   │   ├── daily-todolist.md          # 每日工作清单模板
+│   │   └── review-checklist.md        # 代码审查清单
+│   ├── development/                    # 开发指南
+│   │   ├── local-development.md       # 本地开发指南
+│   │   ├── project-design.md          # 项目设计文档
+│   │   └── backend-spec.md            # 后端技术规范
+│   ├── templates/                      # 各类模板
+│   │   └── pull-request-template.md   # PR 模板
+│   └── examples/                       # 示例文档
+│       └── example-issue.md           # Issue 示例
+├── backend/                            # 后端代码及文档
+└── frontend/                           # 前端代码及文档
+```
+
+### 核心文档链接
+- **开始使用**: [本地开发指南](docs/development/local-development.md)
+- **部署**: [部署指南](DEPLOYMENT.md)
+- **工作流**: [AI Agent 协议](docs/workflow/agent-protocol.md)
+- **代码审查**: [Review Checklist](docs/workflow/review-checklist.md)
+
+---
+
 ## 🛠️ 安装与配置
 
 ### 1. 设置 Secrets
