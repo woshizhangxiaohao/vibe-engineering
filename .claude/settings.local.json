@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git commit --allow-empty -m \"$\\(cat <<''EOF''\nTrigger Railway redeploy for OAuth callback route\n\nRailroad deployment might be running stale code. Force redeploy.\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)",
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nFix: Update router comments to trigger Railway rebuild\n\nTesting if Railway deployment is properly picking up route changes.\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+    ]
+  }
+}

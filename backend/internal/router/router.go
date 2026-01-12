@@ -40,7 +40,7 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 	youtubeService := services.NewYouTubeService(cfg.OpenRouterAPIKey, cfg.GeminiModel, log)
 	videoHandler := handlers.NewVideoHandler(videoRepo, youtubeService, log)
 
-	// YouTube Data API v3 handlers
+	// YouTube Data API v3 handlers (OAuth + API endpoints)
 	oauthService := services.NewOAuthService(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL, log)
 	youtubeAPIService := services.NewYouTubeAPIService(cfg.YouTubeAPIKey, cache, oauthService, log)
 	youtubeAPIHandler := handlers.NewYouTubeAPIHandler(youtubeAPIService, oauthService, log)
