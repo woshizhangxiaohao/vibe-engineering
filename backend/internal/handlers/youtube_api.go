@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"golang.org/x/oauth2"
 
 	"vibe-backend/internal/models"
 	"vibe-backend/internal/services"
@@ -163,9 +164,17 @@ func (h *YouTubeAPIHandler) GetPlaylist(c *gin.Context) {
 		return
 	}
 
-	// TODO: Get OAuth token from session/cookie for private playlists
-	// For now, we'll attempt without OAuth (only works for public playlists)
-	response, err := h.youtubeAPI.GetPlaylist(c.Request.Context(), playlistID, nil)
+	// Get OAuth token from Authorization header for private playlists
+	var token *oauth2.Token
+	authHeader := c.GetHeader("Authorization")
+	if authHeader != "" && len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+		accessToken := authHeader[7:]
+		token = &oauth2.Token{
+			AccessToken: accessToken,
+		}
+	}
+
+	response, err := h.youtubeAPI.GetPlaylist(c.Request.Context(), playlistID, token)
 	if err != nil {
 		h.log.Error("Failed to get playlist",
 			zap.Error(err),
@@ -219,9 +228,18 @@ func (h *YouTubeAPIHandler) GetCaptions(c *gin.Context) {
 		return
 	}
 
-	// TODO: Get OAuth token from session/cookie
+	// Get OAuth token from Authorization header
+	var token *oauth2.Token
+	authHeader := c.GetHeader("Authorization")
+	if authHeader != "" && len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+		accessToken := authHeader[7:]
+		token = &oauth2.Token{
+			AccessToken: accessToken,
+		}
+	}
+
 	// Captions API requires OAuth authorization
-	response, err := h.youtubeAPI.GetCaptions(c.Request.Context(), videoID, nil)
+	response, err := h.youtubeAPI.GetCaptions(c.Request.Context(), videoID, token)
 	if err != nil {
 		h.log.Error("Failed to get captions",
 			zap.Error(err),

@@ -32,8 +32,9 @@ function buildHeaders(customHeaders?: Record<string, string>): HeadersInit {
     ...customHeaders,
   });
 
-  // 添加认证 token
-  const token = getAuthToken();
+  // 优先使用 Google OAuth token，如果不存在则使用通用 auth token
+  const googleAccessToken = localStorage.getItem('google_access_token');
+  const token = googleAccessToken || getAuthToken();
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
