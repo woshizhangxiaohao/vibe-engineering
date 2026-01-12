@@ -1,14 +1,20 @@
 "use client";
 
-import React from 'react';
+import React, { Dispatch, SetStateAction } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, Youtube, ListMusic, Subtitles, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import QuotaMonitor from "./QuotaMonitor";
 
-export default function Sidebar() {
+interface SidebarProps {
+  activeTab?: string;
+  onTabChange?: Dispatch<SetStateAction<string>>;
+}
+
+export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   const pathname = usePathname();
+  const useLocalState = activeTab !== undefined && onTabChange !== undefined;
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
@@ -28,21 +34,43 @@ export default function Sidebar() {
       </Link>
 
       <nav className="flex-1 space-y-2">
-        {menuItems.map((item) => (
-          <Link
-            key={item.id}
-            href={item.href}
-            className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200",
-              pathname === item.href
-                ? "bg-secondary text-primary"
-                : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
-            )}
-          >
-            <item.icon className="h-5 w-5" />
-            {item.label}
-          </Link>
-        ))}
+        {menuItems.map((item) => {
+          const isActive = useLocalState ? activeTab === item.id : pathname === item.href;
+          
+          if (useLocalState) {
+            return (
+              <button
+                key={item.id}
+                onClick={() => onTabChange(item.id)}
+                className={cn(
+                  "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200",
+                  isActive
+                    ? "bg-secondary text-primary"
+                    : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                )}
+              >
+                <item.icon className="h-5 w-5" />
+                {item.label}
+              </button>
+            );
+          }
+          
+          return (
+            <Link
+              key={item.id}
+              href={item.href}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200",
+                isActive
+                  ? "bg-secondary text-primary"
+                  : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+              )}
+            >
+              <item.icon className="h-5 w-5" />
+              {item.label}
+            </Link>
+          );
+        })}
       </nav>
 
       <div className="mt-auto pt-6 border-t border-border/50">
