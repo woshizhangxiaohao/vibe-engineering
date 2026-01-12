@@ -20,7 +20,7 @@ export const videoApi = {
 
 export const youtubeApi = {
   getVideo: (idOrUrl: string) =>
-    apiClient.get<YoutubeMetadata & { cached: boolean }>("/v1/youtube/video", { params: { id: idOrUrl } }),
+    apiClient.get<YoutubeMetadata & { cached: boolean }>("/v1/youtube/video", { params: { input: idOrUrl } }),
   
   getPlaylist: (playlistId: string) =>
     apiClient.get<{ items: PlaylistVideo[]; cached: boolean }>("/v1/youtube/playlist", { params: { playlistId } }),
@@ -29,10 +29,10 @@ export const youtubeApi = {
     apiClient.get<{ captions: CaptionTrack[]; cached: boolean }>("/v1/youtube/captions", { params: { videoId } }),
   
   getQuota: () =>
-    apiClient.get<QuotaStatus>("/v1/youtube/quota"),
-    
+    apiClient.get<QuotaStatus>("/v1/system/quota"),
+
   getAuthUrl: () =>
-    apiClient.get<{ url: string }>("/v1/youtube/auth/url"),
+    apiClient.get<{ url: string }>("/v1/auth/google/url"),
 };
 
 export const contentApi = {
