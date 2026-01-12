@@ -10,7 +10,10 @@
       "Bash(git add:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nFix: Update router comments to trigger Railway rebuild\n\nTesting if Railway deployment is properly picking up route changes.\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nForce Railway cache bust to rebuild with latest router code\n\nRailway build cache is preventing the OAuth callback route from being included.\nAdded CACHEBUST arg to force fresh build.\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nForce complete Railway cache invalidation with timestamp\n\n- Changed cache IDs from v1 to v2\n- Added explicit RUN echo command with timestamp to break Docker layer cache\n- This should force Railway to rebuild from source code\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nForce complete Railway cache invalidation with timestamp\n\n- Changed cache IDs from v1 to v2\n- Added explicit RUN echo command with timestamp to break Docker layer cache\n- This should force Railway to rebuild from source code\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(for method in GET POST PUT DELETE PATCH)",
+      "Bash(do echo \"=== Testing $method /api/v1/auth/google/callback ===\" curl -X $method \"https://vibe-engineering-playbook-production-f716.up.railway.app/api/v1/auth/google/callback\" -H \"Content-Type: application/json\" -d '{\"\"\"\"code\"\"\"\":\"\"\"\"test\"\"\"\"}' -w \"\\\\nStatus: %{http_code}\\\\n\" -s)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd version identifier to health check endpoint\n\nThis will help us verify which version Railway has deployed.\nVersion: 2026-01-12-v4-oauth-callback-included\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
