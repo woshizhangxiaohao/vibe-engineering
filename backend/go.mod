@@ -1,6 +1,10 @@
 module vibe-backend
 
-go 1.21
+// DO NOT EDIT THIS VERSION
+go 1.24.0
+
+toolchain go1.24.11
+// DO NOT EDIT THIS VERSION
 
 require (
 	github.com/caarlos0/env/v11 v11.3.1
