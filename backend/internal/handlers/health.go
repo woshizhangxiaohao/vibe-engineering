@@ -37,7 +37,7 @@ func (h *HealthHandler) Health(c *gin.Context) {
 	c.JSON(http.StatusOK, HealthResponse{
 		Status:    "ok",
 		Timestamp: time.Now().UTC(),
-		Version:   "2026-01-13-v10-simplified-build",
+		Version:   "2026-01-13-v11-root-dockerfile",
 	})
 }
 
