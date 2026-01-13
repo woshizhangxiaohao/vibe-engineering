@@ -12,7 +12,17 @@ RUN --mount=type=cache,id=s/3a2cccef-6f6d-4cb8-aaaf-a49ddec22628-/go/pkg/mod,tar
     --mount=type=cache,id=s/3a2cccef-6f6d-4cb8-aaaf-a49ddec22628-/root/.cache/go-build,target=/root/.cache/go-build \
     CGO_ENABLED=0 GO111MODULE=on go build -o /go/bin/server ./cmd/server/main.go
 
-FROM gcr.io/distroless/static-debian13
+FROM debian:bookworm-slim
+
+# Install yt-dlp and dependencies
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    ffmpeg \
+    ca-certificates \
+    && pip3 install --no-cache-dir yt-dlp \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /go/bin/server /
 COPY --from=build /go/src/vibe-backend/migrations /migrations
