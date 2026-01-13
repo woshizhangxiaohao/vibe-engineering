@@ -24,9 +24,13 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /go/bin/server /
+COPY --from=build /go/bin/server /server
 COPY --from=build /go/src/vibe-backend/migrations /migrations
+
+# Ensure server binary is executable
+RUN chmod +x /server
 
 EXPOSE 8080
 
-CMD ["/server"]
+# Use explicit ENTRYPOINT to prevent Railway from using any defaults
+ENTRYPOINT ["/server"]
