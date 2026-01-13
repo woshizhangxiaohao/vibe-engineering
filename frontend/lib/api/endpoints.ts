@@ -49,6 +49,20 @@ export const youtubeApi = {
       { params: { videoId } }
     ),
 
+  // Get transcript using yt-dlp (no OAuth required)
+  getTranscript: (idOrUrl: string) =>
+    apiClient.post<{
+      videoId: string;
+      title: string;
+      author: string;
+      duration: string;
+      transcripts: Array<{
+        start: string;
+        end: string;
+        text: string;
+      }>;
+    }>("/v1/transcript", { input: idOrUrl }),
+
   getQuota: () => apiClient.get<QuotaStatus>("/v1/system/quota"),
 
   getAuthUrl: async () => {

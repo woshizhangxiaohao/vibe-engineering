@@ -45,6 +45,10 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 	youtubeAPIService := services.NewYouTubeAPIService(cfg.YouTubeAPIKey, cache, oauthService, log)
 	youtubeAPIHandler := handlers.NewYouTubeAPIHandler(youtubeAPIService, oauthService, log)
 
+	// Transcript service (yt-dlp based subtitle extraction)
+	transcriptService := services.NewTranscriptService(log)
+	transcriptHandler := handlers.NewTranscriptHandler(transcriptService, log)
+
 	// Health check routes (no auth required)
 	r.GET("/health", healthHandler.Health)
 	r.GET("/ready", healthHandler.Ready)
@@ -101,6 +105,9 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 			{
 				system.GET("/quota", youtubeAPIHandler.GetQuota)
 			}
+
+			// Transcript extraction endpoint (yt-dlp based)
+			v1.POST("/transcript", transcriptHandler.GetTranscript)
 		}
 	}
 
