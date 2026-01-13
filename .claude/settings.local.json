@@ -26,7 +26,11 @@
       "Bash(python3:*)",
       "WebFetch(domain:notegpt.io)",
       "WebFetch(domain:www.youtube.com)",
-      "Bash(yt-dlp:*)"
+      "Bash(yt-dlp:*)",
+      "Bash(gh run list:*)",
+      "Bash(find:*)",
+      "Bash(docker build:*)",
+      "Bash(docker image inspect:*)"
     ]
   }
 }
