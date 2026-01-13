@@ -50,9 +50,13 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL:-http://localhost:3000/auth/google/callback}
+      # Debug log path (mounted volume)
+      - DEBUG_LOG_PATH=/app/.cursor/debug.log
     volumes:
       # 挂载源代码，代码变化会立即反映到容器中
       - ./backend:/go/src/vibe-backend
+      # 挂载 .cursor 目录用于调试日志
+      - ./.cursor:/app/.cursor
       # 排除不需要同步的目录
       - /go/src/vibe-backend/tmp
       - /go/src/vibe-backend/vendor

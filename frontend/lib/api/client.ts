@@ -43,11 +43,13 @@ function isGoogleTokenExpired(): boolean {
 
 /**
  * 刷新 Google OAuth token
+ * @returns 是否成功刷新 token，如果没有 refresh token 则返回 false
  */
-async function refreshGoogleToken(): Promise<void> {
+async function refreshGoogleToken(): Promise<boolean> {
   const refreshToken = localStorage.getItem("google_refresh_token");
   if (!refreshToken) {
-    throw new Error("No refresh token available");
+    // 没有 refresh token，静默返回 false，不抛出错误
+    return false;
   }
 
   try {
@@ -70,6 +72,7 @@ async function refreshGoogleToken(): Promise<void> {
     localStorage.setItem("google_access_token", data.accessToken);
     localStorage.setItem("google_refresh_token", data.refreshToken);
     localStorage.setItem("google_token_expiry", data.expiry);
+    return true;
   } catch (error) {
     console.error("Token refresh failed:", error);
     // 清除过期的 token
@@ -77,7 +80,7 @@ async function refreshGoogleToken(): Promise<void> {
     localStorage.removeItem("google_access_token");
     localStorage.removeItem("google_refresh_token");
     localStorage.removeItem("google_token_expiry");
-    throw error;
+    return false;
   }
 }
 
@@ -181,11 +184,11 @@ class ApiClient {
       localStorage.getItem("google_access_token") &&
       isGoogleTokenExpired()
     ) {
-      try {
-        await refreshGoogleToken();
-      } catch (error) {
-        console.error("Failed to refresh token before request:", error);
-        // 继续请求，让服务器返回 401 错误
+      // 尝试刷新 token，如果失败则清除过期的 token
+      const refreshed = await refreshGoogleToken();
+      if (!refreshed) {
+        // 刷新失败，清除 Google token，后续请求将使用其他认证方式（如果有）
+        console.warn("Token refresh failed, cleared Google OAuth tokens");
       }
     }
 

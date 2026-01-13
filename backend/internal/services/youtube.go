@@ -444,11 +444,23 @@ func (s *YouTubeService) AnalyzeVideo(ctx context.Context, videoID, targetLangua
 // FetchYouTubeTranscript attempts to fetch real transcript from YouTube.
 // Returns the transcript text or an error if not available.
 func (s *YouTubeService) FetchYouTubeTranscript(ctx context.Context, videoID string) (string, error) {
+	// #region agent log
+	logDebugYoutube("youtube.go:446", "FetchYouTubeTranscript entry", map[string]interface{}{
+		"videoId": videoID,
+	}, "C")
+	// #endregion
+
 	// First, get the video page to extract caption track info
 	videoPageURL := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", videoPageURL, nil)
 	if err != nil {
+		// #region agent log
+		logDebugYoutube("youtube.go:450", "Failed to create request", map[string]interface{}{
+			"videoId": videoID,
+			"error": err.Error(),
+		}, "C")
+		// #endregion
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -528,6 +540,12 @@ func (s *YouTubeService) FetchYouTubeTranscript(ctx context.Context, videoID str
 	}
 
 	if captionURL == "" {
+		// #region agent log
+		logDebugYoutube("youtube.go:530", "No caption URL found", map[string]interface{}{
+			"videoId": videoID,
+			"pageLength": len(pageContent),
+		}, "C")
+		// #endregion
 		s.log.Warn("No captions found in video page",
 			zap.String("video_id", videoID),
 		)
@@ -1004,6 +1022,39 @@ func TimestampToSeconds(timestamp string) (int, error) {
 	seconds, _ := strconv.Atoi(matches[2])
 
 	return minutes*60 + seconds, nil
+}
+
+// logDebugYoutube writes debug logs to file (for youtube.go)
+func logDebugYoutube(location, message string, data map[string]interface{}, hypothesisIds string) {
+	logEntry := map[string]interface{}{
+		"location":     location,
+		"message":      message,
+		"data":         data,
+		"timestamp":     time.Now().UnixMilli(),
+		"sessionId":    "debug-session",
+		"runId":        "run1",
+		"hypothesisId": hypothesisIds,
+	}
+	logData, _ := json.Marshal(logEntry)
+	
+	// Try multiple log paths: env var, mounted volume, or fallback to /tmp
+	logPath := os.Getenv("DEBUG_LOG_PATH")
+	if logPath == "" {
+		// Try workspace path first (for local development)
+		workspacePath := "/Users/xiaozihao/Documents/01_Projects/Work_Code/work/Team_AI/vibe-engineering-playbook/.cursor/debug.log"
+		if _, err := os.Stat("/Users/xiaozihao/Documents/01_Projects/Work_Code/work/Team_AI/vibe-engineering-playbook/.cursor"); err == nil {
+			logPath = workspacePath
+		} else {
+			// Fallback to /tmp (always exists in Docker)
+			logPath = "/tmp/debug.log"
+		}
+	}
+	
+	if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+		f.Write(logData)
+		f.WriteString("\n")
+		f.Close()
+	}
 }
 
 // SecondsToTimestamp converts seconds to timestamp string (MM:SS).

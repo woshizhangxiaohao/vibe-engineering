@@ -38,7 +38,8 @@ export default function QuotaMonitor() {
           setQuota(data);
         }
       } catch (e) {
-        console.error("Failed to fetch quota");
+        // 静默处理等待中的请求错误，因为主请求会处理错误
+        console.warn("Pending quota request failed:", e);
       }
       return;
     }
@@ -56,7 +57,19 @@ export default function QuotaMonitor() {
         setQuota(data);
       }
     } catch (e) {
-      console.error("Failed to fetch quota");
+      // 检查是否是认证错误
+      const error = e as Error & { status?: number };
+      if (error.status === 401 || error.message?.includes("No refresh token")) {
+        // 认证失败，清除缓存，组件将不显示
+        quotaCache.data = null;
+        quotaCache.timestamp = 0;
+        if (isMounted.current) {
+          setQuota(null);
+        }
+        console.warn("Quota fetch failed: Authentication required");
+      } else {
+        console.error("Failed to fetch quota:", e);
+      }
     } finally {
       quotaCache.pendingRequest = null;
     }

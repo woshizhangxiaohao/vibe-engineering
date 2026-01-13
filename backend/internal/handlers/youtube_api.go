@@ -1,7 +1,11 @@
 package handlers
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -14,14 +18,16 @@ import (
 // YouTubeAPIHandler handles YouTube API endpoints.
 type YouTubeAPIHandler struct {
 	youtubeAPI   *services.YouTubeAPIService
+	youtubeService *services.YouTubeService
 	oauthService *services.OAuthService
 	log          *zap.Logger
 }
 
 // NewYouTubeAPIHandler creates a new YouTubeAPIHandler.
-func NewYouTubeAPIHandler(youtubeAPI *services.YouTubeAPIService, oauthService *services.OAuthService, log *zap.Logger) *YouTubeAPIHandler {
+func NewYouTubeAPIHandler(youtubeAPI *services.YouTubeAPIService, youtubeService *services.YouTubeService, oauthService *services.OAuthService, log *zap.Logger) *YouTubeAPIHandler {
 	return &YouTubeAPIHandler{
 		youtubeAPI:   youtubeAPI,
+		youtubeService: youtubeService,
 		oauthService: oauthService,
 		log:          log,
 	}
@@ -270,6 +276,17 @@ func (h *YouTubeAPIHandler) GetPlaylist(c *gin.Context) {
 // GetCaptions fetches video caption tracks.
 // GET /api/v1/youtube/captions?videoId=<id>
 func (h *YouTubeAPIHandler) GetCaptions(c *gin.Context) {
+	// #region agent log
+	logDebug("youtube_api.go:274", "GetCaptions entry", map[string]interface{}{
+		"videoId": c.Query("videoId"),
+		"hasAuthHeader": c.GetHeader("Authorization") != "",
+		"youtubeServiceNil": h.youtubeService == nil,
+		"youtubeAPINil": h.youtubeAPI == nil,
+		"method": c.Request.Method,
+		"path": c.Request.URL.Path,
+	}, "A,C,D")
+	// #endregion
+
 	videoID := c.Query("videoId")
 	if videoID == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{
@@ -289,23 +306,155 @@ func (h *YouTubeAPIHandler) GetCaptions(c *gin.Context) {
 		}
 	}
 
-	// Captions API requires OAuth authorization
-	response, err := h.youtubeAPI.GetCaptions(c.Request.Context(), videoID, token)
-	if err != nil {
-		h.log.Error("Failed to get captions",
-			zap.Error(err),
+	// #region agent log
+	logDebug("youtube_api.go:293", "Before GetCaptions API call", map[string]interface{}{
+		"videoId": videoID,
+		"hasToken": token != nil,
+		"tokenLength": func() int {
+			if token != nil {
+				return len(token.AccessToken)
+			}
+			return 0
+		}(),
+	}, "B,E")
+	// #endregion
+
+	// Try YouTube Data API v3 first (only if we have a token)
+	var response *models.YouTubeCaptionsResponse
+	var err error
+	if token != nil && token.AccessToken != "" {
+		response, err = h.youtubeAPI.GetCaptions(c.Request.Context(), videoID, token)
+		if err != nil {
+			// #region agent log
+			logDebug("youtube_api.go:296", "GetCaptions API error", map[string]interface{}{
+				"videoId": videoID,
+				"error": err.Error(),
+				"isUnauthorized": isUnauthorizedError(err),
+			}, "B,E")
+			// #endregion
+
+			h.log.Warn("YouTube Data API v3 failed, trying fallback method",
+				zap.Error(err),
+				zap.String("video_id", videoID),
+			)
+
+			// Only return 401 for actual authorization failures (not missing captions)
+			// If it's a NO_CAPTIONS error, we should try fallback
+			if isUnauthorizedError(err) && !contains(err.Error(), "NO_CAPTIONS") {
+				// #region agent log
+				logDebug("youtube_api.go:303", "Unauthorized error detected, returning 401", map[string]interface{}{
+					"videoId": videoID,
+					"error": err.Error(),
+				}, "B")
+				// #endregion
+				c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+					Code:    models.ErrorUnauthorized,
+					Message: "需要 OAuth 授权才能访问字幕",
+				})
+				return
+			}
+			// If it's NO_CAPTIONS or other errors, fall through to fallback
+		}
+	} else {
+		// #region agent log
+		logDebug("youtube_api.go:295", "No OAuth token, skipping API and trying fallback", map[string]interface{}{
+			"videoId": videoID,
+		}, "B")
+		// #endregion
+		h.log.Info("No OAuth token provided, using fallback method",
 			zap.String("video_id", videoID),
 		)
+		err = fmt.Errorf("NO_CAPTIONS: no OAuth token")
+	}
 
-		// Map error to appropriate response
-		if isUnauthorizedError(err) {
-			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
-				Code:    models.ErrorUnauthorized,
-				Message: "需要 OAuth 授权才能访问字幕",
-			})
-			return
+	// If API returns no captions or no token, try fallback method (web scraping)
+	// This works even without OAuth and can access more videos
+	if err != nil || response == nil || (response != nil && len(response.Captions) == 0) {
+		// #region agent log
+		logDebug("youtube_api.go:369", "Checking fallback availability", map[string]interface{}{
+			"videoId": videoID,
+			"youtubeServiceNil": h.youtubeService == nil,
+			"hasError": err != nil,
+			"error": func() string {
+				if err != nil {
+					return err.Error()
+				}
+				return ""
+			}(),
+		}, "A")
+		// #endregion
+
+		if h.youtubeService != nil {
+			// #region agent log
+			logDebug("youtube_api.go:315", "Starting fallback method", map[string]interface{}{
+				"videoId": videoID,
+			}, "C")
+			// #endregion
+
+			h.log.Info("Attempting fallback caption extraction via web scraping",
+				zap.String("video_id", videoID),
+			)
+			
+			transcript, fallbackErr := h.youtubeService.FetchYouTubeTranscript(c.Request.Context(), videoID)
+			
+			// #region agent log
+			logDebug("youtube_api.go:318", "Fallback method result", map[string]interface{}{
+				"videoId": videoID,
+				"hasError": fallbackErr != nil,
+				"error": func() string {
+					if fallbackErr != nil {
+						return fallbackErr.Error()
+					}
+					return ""
+				}(),
+				"transcriptLength": len(transcript),
+				"transcriptEmpty": transcript == "",
+			}, "C")
+			// #endregion
+
+			if fallbackErr == nil && transcript != "" {
+				// Successfully fetched transcript via web scraping
+				// Create a response with a virtual caption track
+				fallbackResponse := &models.YouTubeCaptionsResponse{
+					Captions: []models.YouTubeCaption{
+						{
+							ID:       "fallback-transcript",
+							Language: "auto",
+							Name:     "自动生成字幕（网页抓取）",
+						},
+					},
+				}
+				h.log.Info("Successfully fetched captions via fallback method",
+					zap.String("video_id", videoID),
+					zap.Int("transcript_length", len(transcript)),
+				)
+				// #region agent log
+				logDebug("youtube_api.go:335", "Fallback success, returning 200", map[string]interface{}{
+					"videoId": videoID,
+				}, "C")
+				// #endregion
+				c.JSON(http.StatusOK, fallbackResponse)
+				return
+			}
+
+			h.log.Warn("Fallback method also failed",
+				zap.Error(fallbackErr),
+				zap.String("video_id", videoID),
+			)
+		} else {
+			// #region agent log
+			logDebug("youtube_api.go:343", "Fallback skipped - youtubeService is nil", map[string]interface{}{
+				"videoId": videoID,
+			}, "A")
+			// #endregion
 		}
 
+		// Both methods failed
+		// #region agent log
+		logDebug("youtube_api.go:346", "Both methods failed, returning 404", map[string]interface{}{
+			"videoId": videoID,
+		}, "A,C")
+		// #endregion
 		c.JSON(http.StatusNotFound, models.ErrorResponse{
 			Code:    models.ErrorNoCaptions,
 			Message: "该视频未提供 API 可访问的字幕轨道",
@@ -313,7 +462,46 @@ func (h *YouTubeAPIHandler) GetCaptions(c *gin.Context) {
 		return
 	}
 
+	// #region agent log
+	logDebug("youtube_api.go:353", "API success, returning 200", map[string]interface{}{
+		"videoId": videoID,
+		"captionsCount": len(response.Captions),
+	}, "D")
+	// #endregion
 	c.JSON(http.StatusOK, response)
+}
+
+// logDebug writes debug logs to file
+func logDebug(location, message string, data map[string]interface{}, hypothesisIds string) {
+	logEntry := map[string]interface{}{
+		"location":      location,
+		"message":       message,
+		"data":          data,
+		"timestamp":     time.Now().UnixMilli(),
+		"sessionId":     "debug-session",
+		"runId":         "run1",
+		"hypothesisId":  hypothesisIds,
+	}
+	logData, _ := json.Marshal(logEntry)
+	
+	// Try multiple log paths: env var, mounted volume, or fallback to /tmp
+	logPath := os.Getenv("DEBUG_LOG_PATH")
+	if logPath == "" {
+		// Try workspace path first (for local development)
+		workspacePath := "/Users/xiaozihao/Documents/01_Projects/Work_Code/work/Team_AI/vibe-engineering-playbook/.cursor/debug.log"
+		if _, err := os.Stat("/Users/xiaozihao/Documents/01_Projects/Work_Code/work/Team_AI/vibe-engineering-playbook/.cursor"); err == nil {
+			logPath = workspacePath
+		} else {
+			// Fallback to /tmp (always exists in Docker)
+			logPath = "/tmp/debug.log"
+		}
+	}
+	
+	if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+		f.Write(logData)
+		f.WriteString("\n")
+		f.Close()
+	}
 }
 
 // GetQuota returns the current API quota status.
