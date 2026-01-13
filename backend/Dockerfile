@@ -1,7 +1,9 @@
 FROM golang:1.24 AS build
 
-# Force rebuild when this changes - 2026-01-13-v7
+# IMPORTANT: Rebuild required for yt-dlp support - 2026-01-13-v7
+# Railway must rebuild this image with Debian base instead of distroless
 ARG BUILD_VERSION=2026-01-13-v7-transcript-yt-dlp
+ARG CACHEBUST=20260113-052930
 
 WORKDIR /go/src/vibe-backend
 
