@@ -26,11 +26,12 @@ RUN apt-get update && apt-get install -y \
 
 COPY --from=build /go/bin/server /server
 COPY --from=build /go/src/vibe-backend/migrations /migrations
+COPY entrypoint.sh /entrypoint.sh
 
-# Ensure server binary is executable
-RUN chmod +x /server
+# Ensure executables have correct permissions
+RUN chmod +x /server /entrypoint.sh
 
 EXPOSE 8080
 
-# Use explicit ENTRYPOINT to prevent Railway from using any defaults
-ENTRYPOINT ["/server"]
+# Use shell script entrypoint for better logging
+ENTRYPOINT ["/entrypoint.sh"]
