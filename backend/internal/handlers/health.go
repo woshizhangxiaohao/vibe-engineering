@@ -42,39 +42,39 @@ func (h *HealthHandler) Health(c *gin.Context) {
 }
 
 // Ready returns detailed readiness status (checks dependencies).
+// Note: Redis is optional, so we don't fail if it's unavailable.
 func (h *HealthHandler) Ready(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
 	services := make(map[string]string)
-	allHealthy := true
+	dbHealthy := true
 
-	// Check database
+	// Check database (required)
 	if h.db == nil {
 		services["database"] = "unavailable: not connected"
-		allHealthy = false
+		dbHealthy = false
 	} else if err := h.db.Ping(ctx); err != nil {
 		services["database"] = "unhealthy: " + err.Error()
-		allHealthy = false
+		dbHealthy = false
 	} else {
 		services["database"] = "healthy"
 	}
 
-	// Check Redis
+	// Check Redis (optional - don't fail if unavailable)
 	if h.cache == nil {
-		services["cache"] = "unavailable: not connected"
-		allHealthy = false
+		services["cache"] = "disabled"
 	} else if err := h.cache.Ping(ctx); err != nil {
-		services["cache"] = "unhealthy: " + err.Error()
-		allHealthy = false
+		services["cache"] = "unavailable: " + err.Error()
 	} else {
 		services["cache"] = "healthy"
 	}
 
+	// Only database is required for the service to be "ready"
 	status := "ok"
 	statusCode := http.StatusOK
-	if !allHealthy {
-		status = "degraded"
+	if !dbHealthy {
+		status = "unhealthy"
 		statusCode = http.StatusServiceUnavailable
 	}
 
