@@ -37,7 +37,7 @@ func (h *HealthHandler) Health(c *gin.Context) {
 	c.JSON(http.StatusOK, HealthResponse{
 		Status:    "ok",
 		Timestamp: time.Now().UTC(),
-		Version:   "2026-01-13-v8-transcript-yt-dlp-force-rebuild",
+		Version:   "2026-01-13-v9-fix-copy-path",
 	})
 }
 

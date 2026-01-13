@@ -1,15 +1,15 @@
 # Railway Docker Build - yt-dlp transcript support
-# FORCE REBUILD: 2026-01-13 13:35:15 UTC
+# FORCE REBUILD: 2026-01-13 14:10:00 UTC - v9 fix path
 FROM golang:1.24 AS build
 
-# IMPORTANT: Rebuild required for yt-dlp support - 2026-01-13-v8
-# Railway must rebuild this image with Debian base instead of distroless
-ARG BUILD_VERSION=2026-01-13-v8-transcript-yt-dlp-force-rebuild
-ARG CACHEBUST=20260113-133515
+# IMPORTANT: Rebuild required for yt-dlp support - 2026-01-13-v9
+ARG BUILD_VERSION=2026-01-13-v9-fix-copy-path
+ARG CACHEBUST=20260113-141000
 
 WORKDIR /go/src/vibe-backend
 
-COPY backend/ .
+# Copy from current directory (works when build context is backend/)
+COPY . .
 
 RUN --mount=type=cache,id=s/3a2cccef-6f6d-4cb8-aaaf-a49ddec22628-/go/pkg/mod,target=/go/pkg/mod \
     go mod download
@@ -22,7 +22,7 @@ RUN --mount=type=cache,id=s/3a2cccef-6f6d-4cb8-aaaf-a49ddec22628-/go/pkg/mod,tar
 FROM debian:bookworm-slim
 
 # Build version for cache busting
-ARG BUILD_VERSION=2026-01-13-v8-transcript-yt-dlp-force-rebuild
+ARG BUILD_VERSION=2026-01-13-v9-fix-copy-path
 LABEL build.version="${BUILD_VERSION}"
 
 # Install yt-dlp and dependencies for YouTube transcript extraction

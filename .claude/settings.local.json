@@ -22,7 +22,8 @@
       "Bash(lsof:*)",
       "Bash(TOKEN=\"ya29.A0AUMWg_LUs0zFmDRL55zsA000kBfnXkLlBQzbWGgDOXr3ZUH6oO1qXSIRCIK7-_FdcLDd64hLg_DyRyedsjnp_PV8u5ipvJ3iRclYAWwWhaZyIT8aLf3cSG-1ikdBtLkBpsezicCm4vcvk1ksCP84r-MpQll6jfNfjCp6MbZ1zqllE6-kZBTH5jb6kgCeoOsIBDUZNHiJGKaxzwawlLECpnc1FfldETv3J3JMa5kktPo94I2fzGCLUGd8iuxmXvmAQxP88t5HUg1cvVQJhKgBLNEeiqalWBEaCgYKAUISARISFQHGX2Mi9Ys9Sy4ad571mdPhB2HDig0294\")",
       "Bash(ls:*)",
-      "Bash(go version:*)"
+      "Bash(go version:*)",
+      "Bash(python3:*)"
     ]
   }
 }
