@@ -394,8 +394,25 @@ func (h *YouTubeAPIHandler) GetCaptions(c *gin.Context) {
 			}, "C")
 			// #endregion
 
-			h.log.Info("Attempting fallback caption extraction via web scraping",
+			// Try structured transcript first (new format)
+			h.log.Info("Attempting structured transcript extraction",
 				zap.String("video_id", videoID),
+			)
+			
+			structuredResponse, structuredErr := h.youtubeService.FetchYouTubeTranscriptStructured(c.Request.Context(), videoID)
+			if structuredErr == nil && structuredResponse != nil {
+				h.log.Info("Successfully fetched structured transcript",
+					zap.String("video_id", videoID),
+					zap.Int("language_count", len(structuredResponse.LanguageCode)),
+				)
+				c.JSON(http.StatusOK, structuredResponse)
+				return
+			}
+
+			// Fallback to old method
+			h.log.Info("Structured method failed, trying old transcript extraction",
+				zap.String("video_id", videoID),
+				zap.Error(structuredErr),
 			)
 			
 			transcript, fallbackErr := h.youtubeService.FetchYouTubeTranscript(c.Request.Context(), videoID)
@@ -457,7 +474,7 @@ func (h *YouTubeAPIHandler) GetCaptions(c *gin.Context) {
 
 			if fallbackErr == nil && transcript != "" {
 				// Successfully fetched transcript via web scraping
-				// Create a response with a virtual caption track
+				// Create a response with a virtual caption track AND the actual transcript
 				fallbackResponse := &models.YouTubeCaptionsResponse{
 					Captions: []models.YouTubeCaption{
 						{
@@ -466,6 +483,7 @@ func (h *YouTubeAPIHandler) GetCaptions(c *gin.Context) {
 							Name:     "自动生成字幕（网页抓取）",
 						},
 					},
+					Transcript: transcript, // 返回实际的字幕内容
 				}
 				h.log.Info("Successfully fetched captions via fallback method",
 					zap.String("video_id", videoID),

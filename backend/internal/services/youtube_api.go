@@ -60,15 +60,17 @@ func (s *YouTubeAPIService) GetVideoMetadata(ctx context.Context, input string) 
 		return nil, fmt.Errorf("INVALID_INPUT: %w", err)
 	}
 
-	// Check cache first
+	// Check cache first (if cache is available)
 	cacheKey := fmt.Sprintf("youtube:video:%s", videoID)
-	cached, err := s.cache.Get(ctx, cacheKey)
-	if err == nil && cached != "" {
-		var response models.YouTubeVideoResponse
-		if err := json.Unmarshal([]byte(cached), &response); err == nil {
-			response.CacheHit = true
-			s.log.Debug("Cache hit for video metadata", zap.String("video_id", videoID))
-			return &response, nil
+	if s.cache != nil {
+		cached, err := s.cache.Get(ctx, cacheKey)
+		if err == nil && cached != "" {
+			var response models.YouTubeVideoResponse
+			if err := json.Unmarshal([]byte(cached), &response); err == nil {
+				response.CacheHit = true
+				s.log.Debug("Cache hit for video metadata", zap.String("video_id", videoID))
+				return &response, nil
+			}
 		}
 	}
 
@@ -112,9 +114,11 @@ func (s *YouTubeAPIService) GetVideoMetadata(ctx context.Context, input string) 
 		CacheHit:    false,
 	}
 
-	// Cache the result
-	data, _ := json.Marshal(result)
-	s.cache.Set(ctx, cacheKey, string(data), videoCacheTTL)
+	// Cache the result (if cache is available)
+	if s.cache != nil {
+		data, _ := json.Marshal(result)
+		s.cache.Set(ctx, cacheKey, string(data), videoCacheTTL)
+	}
 
 	// Update quota
 	s.incrementQuota(quotaVideoMetadata)
@@ -124,20 +128,23 @@ func (s *YouTubeAPIService) GetVideoMetadata(ctx context.Context, input string) 
 
 // GetPlaylist fetches playlist items with caching.
 func (s *YouTubeAPIService) GetPlaylist(ctx context.Context, playlistID string, token *oauth2.Token) (*models.YouTubePlaylistResponse, error) {
-	// Check cache first
+	// Check cache first (if cache is available)
 	cacheKey := fmt.Sprintf("youtube:playlist:%s", playlistID)
-	cached, err := s.cache.Get(ctx, cacheKey)
-	if err == nil && cached != "" {
-		var response models.YouTubePlaylistResponse
-		if err := json.Unmarshal([]byte(cached), &response); err == nil {
-			response.CacheHit = true
-			s.log.Debug("Cache hit for playlist", zap.String("playlist_id", playlistID))
-			return &response, nil
+	if s.cache != nil {
+		cached, err := s.cache.Get(ctx, cacheKey)
+		if err == nil && cached != "" {
+			var response models.YouTubePlaylistResponse
+			if err := json.Unmarshal([]byte(cached), &response); err == nil {
+				response.CacheHit = true
+				s.log.Debug("Cache hit for playlist", zap.String("playlist_id", playlistID))
+				return &response, nil
+			}
 		}
 	}
 
 	// Create YouTube service with OAuth token if provided
 	var service *youtube.Service
+	var err error
 	if token != nil {
 		client := s.oauthService.config.Client(ctx, token)
 		service, err = youtube.NewService(ctx, option.WithHTTPClient(client))
@@ -174,9 +181,11 @@ func (s *YouTubeAPIService) GetPlaylist(ctx context.Context, playlistID string, 
 		CacheHit: false,
 	}
 
-	// Cache the result
-	data, _ := json.Marshal(result)
-	s.cache.Set(ctx, cacheKey, string(data), playlistCacheTTL)
+	// Cache the result (if cache is available)
+	if s.cache != nil {
+		data, _ := json.Marshal(result)
+		s.cache.Set(ctx, cacheKey, string(data), playlistCacheTTL)
+	}
 
 	// Update quota
 	s.incrementQuota(quotaPlaylist)
@@ -186,14 +195,16 @@ func (s *YouTubeAPIService) GetPlaylist(ctx context.Context, playlistID string, 
 
 // GetCaptions fetches caption tracks for a video.
 func (s *YouTubeAPIService) GetCaptions(ctx context.Context, videoID string, token *oauth2.Token) (*models.YouTubeCaptionsResponse, error) {
-	// Check cache first
+	// Check cache first (if cache is available)
 	cacheKey := fmt.Sprintf("youtube:captions:%s", videoID)
-	cached, err := s.cache.Get(ctx, cacheKey)
-	if err == nil && cached != "" {
-		var response models.YouTubeCaptionsResponse
-		if err := json.Unmarshal([]byte(cached), &response); err == nil {
-			s.log.Debug("Cache hit for captions", zap.String("video_id", videoID))
-			return &response, nil
+	if s.cache != nil {
+		cached, err := s.cache.Get(ctx, cacheKey)
+		if err == nil && cached != "" {
+			var response models.YouTubeCaptionsResponse
+			if err := json.Unmarshal([]byte(cached), &response); err == nil {
+				s.log.Debug("Cache hit for captions", zap.String("video_id", videoID))
+				return &response, nil
+			}
 		}
 	}
 
@@ -244,9 +255,11 @@ func (s *YouTubeAPIService) GetCaptions(ctx context.Context, videoID string, tok
 		Captions: captions,
 	}
 
-	// Cache the result
-	data, _ := json.Marshal(result)
-	s.cache.Set(ctx, cacheKey, string(data), captionsCacheTTL)
+	// Cache the result (if cache is available)
+	if s.cache != nil {
+		data, _ := json.Marshal(result)
+		s.cache.Set(ctx, cacheKey, string(data), captionsCacheTTL)
+	}
 
 	// Update quota
 	s.incrementQuota(quotaCaptions)
@@ -256,13 +269,15 @@ func (s *YouTubeAPIService) GetCaptions(ctx context.Context, videoID string, tok
 
 // GetQuotaStatus returns the current quota usage.
 func (s *YouTubeAPIService) GetQuotaStatus(ctx context.Context) *models.QuotaResponse {
-	// Try to get quota from cache
-	cacheKey := "youtube:quota:used"
-	cached, err := s.cache.Get(ctx, cacheKey)
-	if err == nil && cached != "" {
-		var used int64
-		if _, err := fmt.Sscanf(cached, "%d", &used); err == nil {
-			s.quotaUsed = used
+	// Try to get quota from cache (if cache is available)
+	if s.cache != nil {
+		cacheKey := "youtube:quota:used"
+		cached, err := s.cache.Get(ctx, cacheKey)
+		if err == nil && cached != "" {
+			var used int64
+			if _, err := fmt.Sscanf(cached, "%d", &used); err == nil {
+				s.quotaUsed = used
+			}
 		}
 	}
 
@@ -288,10 +303,12 @@ func (s *YouTubeAPIService) GetQuotaStatus(ctx context.Context) *models.QuotaRes
 func (s *YouTubeAPIService) incrementQuota(cost int64) {
 	s.quotaUsed += cost
 
-	// Store in cache with 24-hour expiry (quota resets daily)
-	ctx := context.Background()
-	cacheKey := "youtube:quota:used"
-	s.cache.Set(ctx, cacheKey, fmt.Sprintf("%d", s.quotaUsed), 24*time.Hour)
+	// Store in cache with 24-hour expiry (quota resets daily) - if cache is available
+	if s.cache != nil {
+		ctx := context.Background()
+		cacheKey := "youtube:quota:used"
+		s.cache.Set(ctx, cacheKey, fmt.Sprintf("%d", s.quotaUsed), 24*time.Hour)
+	}
 }
 
 // extractVideoID extracts the YouTube video ID from various input formats.

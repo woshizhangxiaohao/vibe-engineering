@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -16,6 +17,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"vibe-backend/internal/models"
 )
 
 // YouTubeService handles YouTube video operations using OpenRouter and Gemini.
@@ -441,6 +444,212 @@ func (s *YouTubeService) AnalyzeVideo(ctx context.Context, videoID, targetLangua
 	return analysisResult, nil
 }
 
+// FetchYouTubeTranscriptStructured fetches structured transcript data from YouTube.
+func (s *YouTubeService) FetchYouTubeTranscriptStructured(ctx context.Context, videoID string) (*models.YouTubeTranscriptResponse, error) {
+	// Get video metadata first
+	videoMetadata, err := s.GetVideoMetadataFromAPI(ctx, videoID)
+	if err != nil {
+		s.log.Warn("Failed to get video metadata, using defaults",
+			zap.String("video_id", videoID),
+			zap.Error(err),
+		)
+		videoMetadata = &VideoMetadata{
+			VideoID:      videoID,
+			Title:        "",
+			Author:       "",
+			ThumbnailURL: fmt.Sprintf("https://i.ytimg.com/vi/%s/maxresdefault.jpg", videoID),
+			Duration:     0,
+		}
+	}
+
+	// Get caption tracks and transcripts via innertube API
+	apiURL := "https://www.youtube.com/youtubei/v1/player"
+	apiKey := "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+
+	payload := map[string]interface{}{
+		"context": map[string]interface{}{
+			"client": map[string]interface{}{
+				"hl":            "en",
+				"gl":            "US",
+				"clientName":    "WEB",
+				"clientVersion": "2.20231219.04.00",
+			},
+		},
+		"videoId": videoID,
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal innertube request: %w", err)
+	}
+
+	reqURL := fmt.Sprintf("%s?key=%s", apiURL, apiKey)
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create innertube request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("innertube API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read innertube response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("innertube API returned status %d", resp.StatusCode)
+	}
+
+	// Parse response to get caption tracks and video details
+	var apiResult struct {
+		VideoDetails struct {
+			Title       string `json:"title"`
+			ChannelId   string `json:"channelId"`
+			LengthSeconds string `json:"lengthSeconds"`
+		} `json:"videoDetails"`
+		Captions struct {
+			PlayerCaptionsTracklistRenderer struct {
+				CaptionTracks []struct {
+					BaseURL      string `json:"baseUrl"`
+					LanguageCode string `json:"languageCode"`
+					Name         struct {
+						SimpleText string `json:"simpleText"`
+					} `json:"name"`
+					Kind string `json:"kind"` // "asr" for auto-generated, "" for manual
+				} `json:"captionTracks"`
+			} `json:"playerCaptionsTracklistRenderer"`
+		} `json:"captions"`
+	}
+
+	if err := json.Unmarshal(body, &apiResult); err != nil {
+		return nil, fmt.Errorf("failed to parse innertube response: %w", err)
+	}
+
+	captionTracks := apiResult.Captions.PlayerCaptionsTracklistRenderer.CaptionTracks
+	if len(captionTracks) == 0 {
+		return nil, fmt.Errorf("NO_CAPTIONS: 此视频没有可用的字幕")
+	}
+
+	// Build language codes list
+	languageCodes := make([]models.YouTubeLanguageCode, len(captionTracks))
+	for i, track := range captionTracks {
+		languageCodes[i] = models.YouTubeLanguageCode{
+			Code: track.LanguageCode,
+			Name: track.Name.SimpleText,
+		}
+	}
+
+	// Fetch transcripts for all available languages
+	transcripts := make(map[string]models.TranscriptData)
+
+	for _, track := range captionTracks {
+		langCode := track.LanguageCode
+		isAuto := track.Kind == "asr"
+
+		// Fetch caption content
+		captionReq, err := http.NewRequestWithContext(ctx, "GET", track.BaseURL, nil)
+		if err != nil {
+			s.log.Warn("Failed to create caption request",
+				zap.String("lang", langCode),
+				zap.Error(err),
+			)
+			continue
+		}
+		captionReq.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+
+		captionResp, err := s.httpClient.Do(captionReq)
+		if err != nil {
+			s.log.Warn("Failed to fetch caption content",
+				zap.String("lang", langCode),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		captionBody, err := io.ReadAll(captionResp.Body)
+		captionResp.Body.Close()
+		if err != nil || len(captionBody) == 0 {
+			s.log.Warn("Failed to read caption content",
+				zap.String("lang", langCode),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		// Parse structured segments
+		segments, err := s.parseYouTubeCaptionsStructured(string(captionBody))
+		if err != nil || len(segments) == 0 {
+			s.log.Warn("Failed to parse caption segments",
+				zap.String("lang", langCode),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		// Initialize transcript data for this language
+		transcriptData := models.TranscriptData{
+			Custom:  []models.TranscriptSegment{},
+			Default: []models.TranscriptSegment{},
+			Auto:    []models.TranscriptSegment{},
+		}
+
+		if isAuto {
+			transcriptData.Auto = segments
+		} else {
+			transcriptData.Default = segments
+			// Generate merged custom segments (combine multiple segments into longer ones)
+			transcriptData.Custom = mergeTranscriptSegments(segments, 20) // Merge into ~20 second chunks
+		}
+
+		transcripts[langCode] = transcriptData
+	}
+
+	// Check if we got at least one successful transcript
+	if len(transcripts) == 0 {
+		return nil, fmt.Errorf("NO_CAPTIONS: 无法解析任何字幕内容")
+	}
+
+	// Build response
+	response := &models.YouTubeTranscriptResponse{
+		VideoID:      videoID,
+		LanguageCode: languageCodes,
+		Transcripts: transcripts,
+		VideoInfo: models.YouTubeVideoInfo{
+			Name:        videoMetadata.Title,
+			ThumbnailURL: models.YouTubeThumbnailURLs{
+				Hqdefault:     fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", videoID),
+				Maxresdefault: fmt.Sprintf("https://i.ytimg.com/vi/%s/maxresdefault.jpg", videoID),
+			},
+			EmbedURL:    fmt.Sprintf("https://www.youtube.com/embed/%s", videoID),
+			Duration:    fmt.Sprintf("%d", videoMetadata.Duration),
+			Description: "",
+			UploadDate:  "",
+			Genre:       "",
+			Author:      videoMetadata.Author,
+			ChannelID:   apiResult.VideoDetails.ChannelId,
+		},
+	}
+
+	// Update title from API if available
+	if apiResult.VideoDetails.Title != "" {
+		response.VideoInfo.Name = apiResult.VideoDetails.Title
+	}
+	if apiResult.VideoDetails.LengthSeconds != "" {
+		if duration, err := strconv.Atoi(apiResult.VideoDetails.LengthSeconds); err == nil {
+			response.VideoInfo.Duration = fmt.Sprintf("%d", duration)
+		}
+	}
+
+	return response, nil
+}
+
 // FetchYouTubeTranscript attempts to fetch real transcript from YouTube.
 // Returns the transcript text or an error if not available.
 func (s *YouTubeService) FetchYouTubeTranscript(ctx context.Context, videoID string) (string, error) {
@@ -450,6 +659,23 @@ func (s *YouTubeService) FetchYouTubeTranscript(ctx context.Context, videoID str
 	}, "C")
 	// #endregion
 
+	// Method 1: Try YouTube innertube API first (most reliable)
+	transcript, err := s.fetchTranscriptViaInnertubeAPI(ctx, videoID)
+	if err == nil && transcript != "" {
+		s.log.Info("Successfully fetched transcript via innertube API",
+			zap.String("video_id", videoID),
+			zap.Int("length", len(transcript)),
+		)
+		return transcript, nil
+	}
+	if err != nil {
+		s.log.Debug("Innertube API failed, trying web scraping fallback",
+			zap.String("video_id", videoID),
+			zap.Error(err),
+		)
+	}
+
+	// Method 2: Fallback to web scraping
 	// First, get the video page to extract caption track info
 	videoPageURL := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 
@@ -777,6 +1003,366 @@ func (s *YouTubeService) FetchYouTubeTranscript(ctx context.Context, videoID str
 	return "", fmt.Errorf("NO_CAPTIONS: 字幕内容解析失败（尝试了 %d 种语言）", len(langsToTry)+1)
 }
 
+// fetchTranscriptViaInnertubeAPI uses YouTube's innertube API to fetch captions.
+// This is more reliable than web scraping as it uses YouTube's official internal API.
+func (s *YouTubeService) fetchTranscriptViaInnertubeAPI(ctx context.Context, videoID string) (string, error) {
+	// YouTube innertube API endpoint
+	apiURL := "https://www.youtube.com/youtubei/v1/player"
+	apiKey := "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8" // Public API key used by YouTube web client
+
+	// Build request payload
+	payload := map[string]interface{}{
+		"context": map[string]interface{}{
+			"client": map[string]interface{}{
+				"hl":            "en",
+				"gl":            "US",
+				"clientName":    "WEB",
+				"clientVersion": "2.20231219.04.00",
+			},
+		},
+		"videoId": videoID,
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal innertube request: %w", err)
+	}
+
+	reqURL := fmt.Sprintf("%s?key=%s", apiURL, apiKey)
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return "", fmt.Errorf("failed to create innertube request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("innertube API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read innertube response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("innertube API returned status %d", resp.StatusCode)
+	}
+
+	// Parse response to get caption tracks
+	var result struct {
+		Captions struct {
+			PlayerCaptionsTracklistRenderer struct {
+				CaptionTracks []struct {
+					BaseURL      string `json:"baseUrl"`
+					LanguageCode string `json:"languageCode"`
+					Name         struct {
+						SimpleText string `json:"simpleText"`
+					} `json:"name"`
+				} `json:"captionTracks"`
+			} `json:"playerCaptionsTracklistRenderer"`
+		} `json:"captions"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("failed to parse innertube response: %w", err)
+	}
+
+	captionTracks := result.Captions.PlayerCaptionsTracklistRenderer.CaptionTracks
+	if len(captionTracks) == 0 {
+		return "", fmt.Errorf("NO_CAPTIONS: 此视频没有可用的字幕")
+	}
+
+	s.log.Info("Found caption tracks via innertube API",
+		zap.String("video_id", videoID),
+		zap.Int("track_count", len(captionTracks)),
+	)
+
+	// Try to find Chinese caption first, then English, then any
+	var selectedURL string
+	var selectedLang string
+
+	priorityLangs := []string{"zh", "zh-Hans", "zh-Hant", "zh-TW", "zh-CN", "en"}
+	for _, lang := range priorityLangs {
+		for _, track := range captionTracks {
+			if strings.HasPrefix(track.LanguageCode, lang) || track.LanguageCode == lang {
+				selectedURL = track.BaseURL
+				selectedLang = track.LanguageCode
+				break
+			}
+		}
+		if selectedURL != "" {
+			break
+		}
+	}
+
+	// If no preferred language found, use first available
+	if selectedURL == "" && len(captionTracks) > 0 {
+		selectedURL = captionTracks[0].BaseURL
+		selectedLang = captionTracks[0].LanguageCode
+	}
+
+	if selectedURL == "" {
+		return "", fmt.Errorf("NO_CAPTIONS: 无法获取字幕 URL")
+	}
+
+	s.log.Info("Fetching captions from innertube URL",
+		zap.String("video_id", videoID),
+		zap.String("lang", selectedLang),
+	)
+
+	// Fetch caption content
+	captionReq, err := http.NewRequestWithContext(ctx, "GET", selectedURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create caption request: %w", err)
+	}
+	captionReq.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+
+	captionResp, err := s.httpClient.Do(captionReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch captions: %w", err)
+	}
+	defer captionResp.Body.Close()
+
+	captionBody, err := io.ReadAll(captionResp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read caption content: %w", err)
+	}
+
+	if len(captionBody) == 0 {
+		return "", fmt.Errorf("NO_CAPTIONS: 字幕内容为空")
+	}
+
+	// Parse the caption XML
+	captionText := s.parseYouTubeCaptions(string(captionBody))
+	if captionText == "" {
+		return "", fmt.Errorf("NO_CAPTIONS: 字幕解析失败")
+	}
+
+	return captionText, nil
+}
+
+// parseYouTubeCaptionsStructured parses YouTube's XML caption format into structured segments.
+func (s *YouTubeService) parseYouTubeCaptionsStructured(xmlContent string) ([]models.TranscriptSegment, error) {
+	var segments []models.TranscriptSegment
+
+	// First, try XML format with start and dur attributes
+	textPattern := regexp.MustCompile(`<text[^>]*start="([^"]*)"[^>]*dur="([^"]*)"[^>]*>([\s\S]*?)</text>`)
+	matches := textPattern.FindAllStringSubmatch(xmlContent, -1)
+
+	if len(matches) == 0 {
+		// Try pattern with only start attribute (need to calculate dur from next segment)
+		textPattern = regexp.MustCompile(`<text[^>]*start="([^"]*)"[^>]*>([\s\S]*?)</text>`)
+		matches = textPattern.FindAllStringSubmatch(xmlContent, -1)
+	}
+
+	if len(matches) == 0 {
+		// Try alternative XML patterns with p tag
+		altPattern := regexp.MustCompile(`<p[^>]*t="(\d+)"[^>]*d="(\d+)"[^>]*>([\s\S]*?)</p>`)
+		matches = altPattern.FindAllStringSubmatch(xmlContent, -1)
+	}
+
+	if len(matches) == 0 {
+		// Try pattern with t attribute only (milliseconds)
+		altPattern := regexp.MustCompile(`<p[^>]*t="(\d+)"[^>]*>([\s\S]*?)</p>`)
+		matches = altPattern.FindAllStringSubmatch(xmlContent, -1)
+	}
+
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("无法解析字幕格式")
+	}
+
+	// Parse all segments first to calculate durations
+	type rawSegment struct {
+		startSeconds float64
+		durSeconds   float64
+		text         string
+		hasDur       bool
+	}
+
+	rawSegments := make([]rawSegment, 0, len(matches))
+	for _, match := range matches {
+		var startSeconds float64
+		var durSeconds float64
+		var text string
+		hasDur := false
+
+		if len(match) >= 4 && match[2] != "" {
+			// Pattern with start and dur
+			var err error
+			startSeconds, err = strconv.ParseFloat(match[1], 64)
+			if err != nil {
+				continue
+			}
+			durSeconds, err = strconv.ParseFloat(match[2], 64)
+			if err == nil {
+				hasDur = true
+			} else {
+				durSeconds = 2.0 // Default duration
+			}
+			text = match[3]
+		} else if len(match) >= 3 {
+			// Pattern with start only or t attribute
+			var err error
+			startSeconds, err = strconv.ParseFloat(match[1], 64)
+			if err != nil {
+				continue
+			}
+			// Check if it's milliseconds (t attribute) or seconds (start attribute)
+			if startSeconds > 10000 {
+				// Likely milliseconds, convert to seconds
+				startSeconds = startSeconds / 1000.0
+			}
+			if len(match) >= 4 && match[2] != "" {
+				// Has duration attribute
+				dMs, err := strconv.ParseFloat(match[2], 64)
+				if err == nil {
+					durSeconds = dMs / 1000.0
+					hasDur = true
+				} else {
+					durSeconds = 2.0
+				}
+			} else {
+				// No duration, will calculate from next segment
+				durSeconds = 2.0
+			}
+			text = match[len(match)-1]
+		} else {
+			continue
+		}
+
+		// Decode HTML entities
+		text = decodeHTMLEntities(text)
+		text = strings.TrimSpace(text)
+		text = regexp.MustCompile(`\s+`).ReplaceAllString(text, " ")
+
+		if text == "" {
+			continue
+		}
+
+		rawSegments = append(rawSegments, rawSegment{
+			startSeconds: startSeconds,
+			durSeconds:   durSeconds,
+			text:         text,
+			hasDur:       hasDur,
+		})
+	}
+
+	// Calculate durations for segments without dur attribute
+	for i := 0; i < len(rawSegments); i++ {
+		if !rawSegments[i].hasDur {
+			if i < len(rawSegments)-1 {
+				// Calculate duration from next segment's start time
+				rawSegments[i].durSeconds = rawSegments[i+1].startSeconds - rawSegments[i].startSeconds
+				if rawSegments[i].durSeconds <= 0 {
+					rawSegments[i].durSeconds = 2.0 // Fallback
+				}
+			} else {
+				// Last segment, use default duration
+				rawSegments[i].durSeconds = 2.0
+			}
+		}
+	}
+
+	// Convert to final segments
+	for _, seg := range rawSegments {
+		endSeconds := seg.startSeconds + seg.durSeconds
+		startTime := formatTimestampFromSeconds(seg.startSeconds)
+		endTime := formatTimestampFromSeconds(endSeconds)
+
+		segments = append(segments, models.TranscriptSegment{
+			Start: startTime,
+			End:   endTime,
+			Text:  seg.text,
+		})
+	}
+
+	return segments, nil
+}
+
+// mergeTranscriptSegments merges short segments into longer ones for better readability.
+// targetDuration is the target duration for each merged segment in seconds.
+func mergeTranscriptSegments(segments []models.TranscriptSegment, targetDuration int) []models.TranscriptSegment {
+	if len(segments) == 0 {
+		return segments
+	}
+
+	var merged []models.TranscriptSegment
+	var currentTexts []string
+	var currentStart string
+	var currentEnd string
+	var currentDuration float64
+
+	for i, seg := range segments {
+		// Parse start and end times
+		startSecs := parseTimestampToSeconds(seg.Start)
+		endSecs := parseTimestampToSeconds(seg.End)
+		duration := endSecs - startSecs
+
+		if len(currentTexts) == 0 {
+			// Start a new merged segment
+			currentStart = seg.Start
+			currentTexts = []string{seg.Text}
+			currentEnd = seg.End
+			currentDuration = duration
+		} else {
+			// Check if we should merge with current segment
+			if currentDuration < float64(targetDuration) {
+				// Add to current segment
+				currentTexts = append(currentTexts, seg.Text)
+				currentEnd = seg.End
+				currentDuration += duration
+			} else {
+				// Finish current segment and start new one
+				merged = append(merged, models.TranscriptSegment{
+					Start: currentStart,
+					End:   currentEnd,
+					Text:  strings.Join(currentTexts, " "),
+				})
+				currentStart = seg.Start
+				currentTexts = []string{seg.Text}
+				currentEnd = seg.End
+				currentDuration = duration
+			}
+		}
+
+		// Don't forget the last segment
+		if i == len(segments)-1 && len(currentTexts) > 0 {
+			merged = append(merged, models.TranscriptSegment{
+				Start: currentStart,
+				End:   currentEnd,
+				Text:  strings.Join(currentTexts, " "),
+			})
+		}
+	}
+
+	return merged
+}
+
+// parseTimestampToSeconds converts HH:MM:SS format to seconds.
+func parseTimestampToSeconds(timestamp string) float64 {
+	parts := strings.Split(timestamp, ":")
+	if len(parts) != 3 {
+		return 0
+	}
+	hours, _ := strconv.Atoi(parts[0])
+	minutes, _ := strconv.Atoi(parts[1])
+	seconds, _ := strconv.Atoi(parts[2])
+	return float64(hours*3600 + minutes*60 + seconds)
+}
+
+// formatTimestampFromSeconds converts seconds to HH:MM:SS format.
+func formatTimestampFromSeconds(seconds float64) string {
+	totalSeconds := int(seconds)
+	hours := totalSeconds / 3600
+	minutes := (totalSeconds % 3600) / 60
+	secs := totalSeconds % 60
+	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, secs)
+}
+
 // extractCaptionURLFromPlayerResponse extracts caption URL from ytInitialPlayerResponse JSON.
 func (s *YouTubeService) extractCaptionURLFromPlayerResponse(jsonStr string) string {
 	// Try to find captionTracks in the JSON
@@ -940,40 +1526,24 @@ func (s *YouTubeService) parseYouTubeCaptions(xmlContent string) string {
 	return parsedText
 }
 
-// decodeHTMLEntities decodes common HTML entities in text.
+// decodeHTMLEntities decodes HTML entities in text using Go's html package.
+// Handles double-encoded entities common in YouTube captions.
 func decodeHTMLEntities(text string) string {
+	// YouTube captions are often double-encoded, so we unescape twice
+	text = html.UnescapeString(text)
+	text = html.UnescapeString(text)
+
+	// Handle additional cleanup
 	replacements := map[string]string{
-		"&amp;":  "&",
-		"&lt;":   "<",
-		"&gt;":   ">",
-		"&quot;": "\"",
-		"&#39;":  "'",
-		"&apos;": "'",
-		"&nbsp;": " ",
-		"&#x27;": "'",
-		"&#x2F;": "/",
-		"&#34;":  "\"",
-		"&#60;":  "<",
-		"&#62;":  ">",
-		"&lrm;":  "",
-		"&rlm;":  "",
-		"\n":     " ",
-		"\r":     "",
+		"&lrm;": "",
+		"&rlm;": "",
+		"\n":    " ",
+		"\r":    "",
 	}
 
 	for entity, replacement := range replacements {
 		text = strings.ReplaceAll(text, entity, replacement)
 	}
-
-	// Handle numeric entities like &#123;
-	numericPattern := regexp.MustCompile(`&#(\d+);`)
-	text = numericPattern.ReplaceAllStringFunc(text, func(match string) string {
-		numStr := match[2 : len(match)-1]
-		if num, err := strconv.Atoi(numStr); err == nil && num < 128 {
-			return string(rune(num))
-		}
-		return match
-	})
 
 	return text
 }

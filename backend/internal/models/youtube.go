@@ -49,7 +49,8 @@ type YouTubeCaptionsRequest struct {
 
 // YouTubeCaptionsResponse represents the captions response.
 type YouTubeCaptionsResponse struct {
-	Captions []YouTubeCaption `json:"captions"`
+	Captions   []YouTubeCaption `json:"captions"`
+	Transcript string           `json:"transcript,omitempty"` // 实际的字幕文本内容
 }
 
 // YouTubeCaption represents a single caption track.
@@ -57,6 +58,53 @@ type YouTubeCaption struct {
 	ID       string `json:"id"`
 	Language string `json:"language"`
 	Name     string `json:"name"`
+}
+
+// YouTubeTranscriptResponse represents the structured transcript response.
+type YouTubeTranscriptResponse struct {
+	VideoID      string                    `json:"videoId"`
+	VideoInfo    YouTubeVideoInfo          `json:"videoInfo"`
+	LanguageCode []YouTubeLanguageCode     `json:"language_code"`
+	Transcripts  map[string]TranscriptData `json:"transcripts"`
+}
+
+// TranscriptData represents transcript data for a language.
+type TranscriptData struct {
+	Custom  []TranscriptSegment `json:"custom"`
+	Default []TranscriptSegment `json:"default"`
+	Auto    []TranscriptSegment `json:"auto"`
+}
+
+// YouTubeVideoInfo represents video metadata.
+type YouTubeVideoInfo struct {
+	Name        string                 `json:"name"`
+	ThumbnailURL YouTubeThumbnailURLs  `json:"thumbnailUrl"`
+	EmbedURL    string                 `json:"embedUrl"`
+	Duration    string                 `json:"duration"`
+	Description string                 `json:"description"`
+	UploadDate  string                 `json:"upload_date"`
+	Genre       string                 `json:"genre"`
+	Author      string                 `json:"author"`
+	ChannelID   string                 `json:"channel_id"`
+}
+
+// YouTubeThumbnailURLs represents thumbnail URLs.
+type YouTubeThumbnailURLs struct {
+	Hqdefault     string `json:"hqdefault"`
+	Maxresdefault string `json:"maxresdefault"`
+}
+
+// YouTubeLanguageCode represents a language code.
+type YouTubeLanguageCode struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+// TranscriptSegment represents a single transcript segment.
+type TranscriptSegment struct {
+	Start string `json:"start"`
+	End   string `json:"end"`
+	Text  string `json:"text"`
 }
 
 // QuotaResponse represents the API quota status.

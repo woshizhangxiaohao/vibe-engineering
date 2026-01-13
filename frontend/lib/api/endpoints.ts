@@ -7,6 +7,7 @@ import {
   PlaylistVideo,
   CaptionTrack,
   QuotaStatus,
+  CaptionsResponse,
 } from "@/types/video";
 
 export const videoApi = {
@@ -44,7 +45,7 @@ export const youtubeApi = {
     ),
 
   getCaptions: (videoId: string) =>
-    apiClient.get<{ captions: CaptionTrack[]; cached: boolean }>(
+    apiClient.get<CaptionsResponse>(
       "/v1/youtube/captions",
       { params: { videoId } }
     ),

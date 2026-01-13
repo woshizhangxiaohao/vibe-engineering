@@ -30,7 +30,19 @@
       "Bash(gh run list:*)",
       "Bash(find:*)",
       "Bash(docker build:*)",
-      "Bash(docker image inspect:*)"
+      "Bash(docker image inspect:*)",
+      "Bash(railway status:*)",
+      "Bash(railway service:*)",
+      "Bash(railway up:*)",
+      "Bash(railway redeploy:*)",
+      "Bash(railway logs:*)",
+      "Bash(railway link:*)",
+      "Bash(railway list --help:*)",
+      "Bash(railway --help:*)",
+      "Bash(railway deploy --help:*)",
+      "Bash(railway variables --help:*)",
+      "Bash(railway cache clear:*)",
+      "Bash(railway:*)"
     ]
   }
 }
