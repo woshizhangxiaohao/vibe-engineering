@@ -35,31 +35,82 @@ func main() {
 		zap.String("port", cfg.Port),
 	)
 
-	// Initialize database
-	db, err := database.NewPostgres(cfg.DatabaseURL, log)
-	if err != nil {
-		log.Fatal("Failed to connect to database", zap.Error(err))
+	// Initialize database with retry logic
+	var db *database.PostgresDB
+	var redisCache *cache.RedisCache
+	
+	// Try to connect to database with retries
+	maxRetries := 5
+	retryDelay := 2 * time.Second
+	for i := 0; i < maxRetries; i++ {
+		var err error
+		db, err = database.NewPostgres(cfg.DatabaseURL, log)
+		if err == nil {
+			// Auto-migrate models
+			if err := db.DB.AutoMigrate(
+				&models.Pomodoro{},
+				&models.VideoAnalysis{},
+				&models.Chapter{},
+				&models.Transcription{},
+				&models.KeyPoint{},
+			); err != nil {
+				log.Error("Failed to auto-migrate database", zap.Error(err))
+				db.Close()
+				db = nil
+			} else {
+				log.Info("Database migration completed")
+				break
+			}
+		}
+		if i < maxRetries-1 {
+			log.Warn("Failed to connect to database, retrying...",
+				zap.Error(err),
+				zap.Int("attempt", i+1),
+				zap.Int("max_retries", maxRetries),
+			)
+			time.Sleep(retryDelay)
+		} else {
+			log.Error("Failed to connect to database after retries, continuing without database",
+				zap.Error(err),
+			)
+		}
 	}
-	defer db.Close()
+	// Try to connect to Redis with retries
+	for i := 0; i < maxRetries; i++ {
+		var err error
+		redisCache, err = cache.NewRedis(cfg.RedisURL, log)
+		if err == nil {
+			break
+		}
+		if i < maxRetries-1 {
+			log.Warn("Failed to connect to Redis, retrying...",
+				zap.Error(err),
+				zap.Int("attempt", i+1),
+				zap.Int("max_retries", maxRetries),
+			)
+			time.Sleep(retryDelay)
+		} else {
+			log.Error("Failed to connect to Redis after retries, continuing without Redis",
+				zap.Error(err),
+			)
+		}
+	}
 
-	// Auto-migrate models
-	if err := db.DB.AutoMigrate(
-		&models.Pomodoro{},
-		&models.VideoAnalysis{},
-		&models.Chapter{},
-		&models.Transcription{},
-		&models.KeyPoint{},
-	); err != nil {
-		log.Fatal("Failed to auto-migrate database", zap.Error(err))
+	// Setup cleanup
+	if db != nil {
+		defer func() {
+			if err := db.Close(); err != nil {
+				log.Error("Error closing database", zap.Error(err))
+			}
+		}()
 	}
-	log.Info("Database migration completed")
-
-	// Initialize Redis cache
-	redisCache, err := cache.NewRedis(cfg.RedisURL, log)
-	if err != nil {
-		log.Fatal("Failed to connect to Redis", zap.Error(err))
+	if redisCache != nil {
+		defer func() {
+			if err := redisCache.Close(); err != nil {
+				log.Error("Error closing Redis", zap.Error(err))
+			}
+		}()
 	}
-	defer redisCache.Close()
 
 	// Initialize router
 	r := router.New(cfg, db, redisCache, log)

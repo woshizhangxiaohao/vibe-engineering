@@ -50,7 +50,10 @@ func (h *HealthHandler) Ready(c *gin.Context) {
 	allHealthy := true
 
 	// Check database
-	if err := h.db.Ping(ctx); err != nil {
+	if h.db == nil {
+		services["database"] = "unavailable: not connected"
+		allHealthy = false
+	} else if err := h.db.Ping(ctx); err != nil {
 		services["database"] = "unhealthy: " + err.Error()
 		allHealthy = false
 	} else {
@@ -58,7 +61,10 @@ func (h *HealthHandler) Ready(c *gin.Context) {
 	}
 
 	// Check Redis
-	if err := h.cache.Ping(ctx); err != nil {
+	if h.cache == nil {
+		services["cache"] = "unavailable: not connected"
+		allHealthy = false
+	} else if err := h.cache.Ping(ctx); err != nil {
 		services["cache"] = "unhealthy: " + err.Error()
 		allHealthy = false
 	} else {

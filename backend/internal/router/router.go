@@ -28,8 +28,20 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 	r.Use(middleware.Recovery(log))
 	r.Use(middleware.CORS(cfg.AllowedOrigins))
 
-	// Initialize handlers
+	// Initialize health handler first (always available)
 	healthHandler := handlers.NewHealthHandler(db, cache)
+	
+	// Health check routes (no auth required) - always available
+	r.GET("/health", healthHandler.Health)
+	r.GET("/ready", healthHandler.Ready)
+
+	// Only register other routes if database is available
+	if db == nil {
+		log.Warn("Database not available, only health check endpoints are registered")
+		return r
+	}
+
+	// Initialize other handlers (require database)
 	pomodoroRepo := repository.NewPomodoroRepository(db.DB)
 	pomodoroHandler := handlers.NewPomodoroHandler(pomodoroRepo)
 	parserService := services.NewParserService(log)
@@ -48,10 +60,6 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 	// Transcript service (yt-dlp based subtitle extraction)
 	transcriptService := services.NewTranscriptService(log)
 	transcriptHandler := handlers.NewTranscriptHandler(transcriptService, log)
-
-	// Health check routes (no auth required)
-	r.GET("/health", healthHandler.Health)
-	r.GET("/ready", healthHandler.Ready)
 
 	// API routes
 	api := r.Group("/api")
