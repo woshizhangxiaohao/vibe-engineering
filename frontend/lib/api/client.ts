@@ -118,13 +118,22 @@ async function handleResponse<T>(response: Response): Promise<T> {
   }
 
   if (!response.ok) {
+    // Extract error message from response data
+    let errorMessage = response.statusText;
+    if (isJson && typeof data === "object" && data !== null) {
+      const errorData = data as Record<string, unknown>;
+      // Check for 'message' field first (backend ErrorResponse format)
+      if ("message" in errorData && typeof errorData.message === "string") {
+        errorMessage = errorData.message;
+      } else if ("error" in errorData && typeof errorData.error === "string") {
+        errorMessage = errorData.error;
+      }
+    }
     throw new ApiError(
       response.status,
       response.statusText,
       data,
-      isJson && typeof data === "object" && data !== null && "error" in data
-        ? String(data.error)
-        : response.statusText
+      errorMessage
     );
   }
 

@@ -586,11 +586,34 @@ func (s *YouTubeService) FetchYouTubeTranscriptStructured(ctx context.Context, v
 		// Parse structured segments
 		segments, err := s.parseYouTubeCaptionsStructured(string(captionBody))
 		if err != nil || len(segments) == 0 {
-			s.log.Warn("Failed to parse caption segments",
+			s.log.Warn("Structured parsing failed, trying fallback text parsing",
 				zap.String("lang", langCode),
 				zap.Error(err),
+				zap.Int("contentLength", len(captionBody)),
 			)
-			continue
+			
+			// Fallback: Try to parse as plain text and convert to segments
+			plainText := s.parseYouTubeCaptions(string(captionBody))
+			if plainText != "" {
+				// Convert plain text to segments
+				segments = s.convertPlainTextToSegments(plainText)
+				if len(segments) > 0 {
+					s.log.Info("Successfully parsed using fallback text method",
+						zap.String("lang", langCode),
+						zap.Int("segments", len(segments)),
+					)
+				} else {
+					s.log.Warn("Fallback text parsing also failed",
+						zap.String("lang", langCode),
+					)
+					continue
+				}
+			} else {
+				s.log.Warn("Both structured and text parsing failed",
+					zap.String("lang", langCode),
+				)
+				continue
+			}
 		}
 
 		// Initialize transcript data for this language
@@ -1172,6 +1195,9 @@ func (s *YouTubeService) parseYouTubeCaptionsStructured(xmlContent string) ([]mo
 	}
 
 	if len(matches) == 0 {
+		s.log.Warn("All parsing patterns failed",
+			zap.String("contentSample", xmlContent[:min(500, len(xmlContent))]),
+		)
 		return nil, fmt.Errorf("无法解析字幕格式")
 	}
 
@@ -1524,6 +1550,43 @@ func (s *YouTubeService) parseYouTubeCaptions(xmlContent string) string {
 	// #endregion
 
 	return parsedText
+}
+
+// convertPlainTextToSegments converts plain text with timestamps to structured segments.
+func (s *YouTubeService) convertPlainTextToSegments(plainText string) []models.TranscriptSegment {
+	var segments []models.TranscriptSegment
+	
+	// Parse format: [MM:SS] text
+	// Example: [00:05] Hello world
+	pattern := regexp.MustCompile(`\[(\d{2}):(\d{2})\]\s*(.+?)(?=\n\[|\z)`)
+	matches := pattern.FindAllStringSubmatch(plainText, -1)
+	
+	for _, match := range matches {
+		if len(match) < 4 {
+			continue
+		}
+		
+		minutes, err1 := strconv.Atoi(match[1])
+		seconds, err2 := strconv.Atoi(match[2])
+		text := strings.TrimSpace(match[3])
+		
+		if err1 != nil || err2 != nil || text == "" {
+			continue
+		}
+		
+		totalSeconds := minutes*60 + seconds
+		startTime := formatTimestampFromSeconds(float64(totalSeconds))
+		// Estimate 5 seconds duration per segment
+		endTime := formatTimestampFromSeconds(float64(totalSeconds + 5))
+		
+		segments = append(segments, models.TranscriptSegment{
+			Start: startTime,
+			End:   endTime,
+			Text:  text,
+		})
+	}
+	
+	return segments
 }
 
 // decodeHTMLEntities decodes HTML entities in text using Go's html package.

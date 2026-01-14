@@ -432,10 +432,8 @@ func (h *YouTubeAPIHandler) GetCaptions(c *gin.Context) {
 			}, "C")
 			// #endregion
 
-			// Even if parsing failed, if we found a caption URL, return a virtual track
-			// This allows the frontend to know captions are available
+			// If parsing failed, return error response
 			if fallbackErr != nil {
-				// Check if error is about parsing (not about finding URL)
 				errStr := fallbackErr.Error()
 				
 				// #region agent log
@@ -448,26 +446,15 @@ func (h *YouTubeAPIHandler) GetCaptions(c *gin.Context) {
 				// #endregion
 				
 				if strings.Contains(errStr, "字幕内容解析失败") || strings.Contains(errStr, "字幕获取失败") {
-					// We found the URL but parsing failed - still return a track to indicate availability
-					h.log.Warn("Found captions but parsing failed, returning virtual track",
+					// We found the URL but parsing failed - return error
+					h.log.Warn("Found captions but parsing failed",
 						zap.String("video_id", videoID),
 						zap.Error(fallbackErr),
 					)
-					fallbackResponse := &models.YouTubeCaptionsResponse{
-						Captions: []models.YouTubeCaption{
-							{
-								ID:       "fallback-transcript-available",
-								Language: "auto",
-								Name:     "字幕可用（解析失败，请使用其他方法）",
-							},
-						},
-					}
-					// #region agent log
-					logDebug("youtube_api.go:443", "Returning virtual track despite parse failure", map[string]interface{}{
-						"videoId": videoID,
-					}, "C")
-					// #endregion
-					c.JSON(http.StatusOK, fallbackResponse)
+					c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+						Code:    models.ErrorNoCaptions,
+						Message: "字幕解析失败。该视频有字幕，但无法通过当前方法解析。请尝试使用其他方法获取字幕。",
+					})
 					return
 				}
 			}
@@ -498,28 +485,19 @@ func (h *YouTubeAPIHandler) GetCaptions(c *gin.Context) {
 				return
 			}
 
-			// Even if parsing failed completely, if we found a caption URL earlier, return a virtual track
-			// Since we found the caption URL (from logs), we know captions are available
-			// Return a virtual track to indicate availability even if parsing failed
+			// If parsing failed completely, return error
 			if fallbackErr != nil {
 				errStr := fallbackErr.Error()
-				// If error contains "字幕内容解析失败" or "字幕获取失败", it means we found the URL but parsing failed
-				// In this case, return a virtual track to indicate captions are available
-				if strings.Contains(errStr, "字幕内容解析失败") || strings.Contains(errStr, "字幕获取失败") || strings.Contains(errStr, "NO_CAPTIONS") {
-					h.log.Info("Found captions URL but parsing failed, returning virtual track",
+				// If error contains "字幕内容解析失败" or "字幕获取失败", return error
+				if strings.Contains(errStr, "字幕内容解析失败") || strings.Contains(errStr, "字幕获取失败") {
+					h.log.Warn("Found captions URL but parsing failed",
 						zap.String("video_id", videoID),
 						zap.String("error", errStr),
 					)
-					fallbackResponse := &models.YouTubeCaptionsResponse{
-						Captions: []models.YouTubeCaption{
-							{
-								ID:       "fallback-transcript-available",
-								Language: "auto",
-								Name:     "字幕可用（解析失败，请使用其他方法）",
-							},
-						},
-					}
-					c.JSON(http.StatusOK, fallbackResponse)
+					c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+						Code:    models.ErrorNoCaptions,
+						Message: "字幕解析失败。该视频有字幕，但无法通过当前方法解析。请尝试使用其他方法获取字幕。",
+					})
 					return
 				}
 			}
