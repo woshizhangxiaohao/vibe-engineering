@@ -34,12 +34,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Collect Error Info
         id: error_info
         uses: actions/github-script@v7
@@ -87,11 +81,11 @@ jobs:
                   repo: context.repo.repo,
                   job_id: job.id
                 });
-                // 只保留最后 200 行
-                const logLines = logs.data.split('\n').slice(-200).join('\n');
+                // 只保留最后 150 行，避免太长
+                const logLines = logs.data.split('\n').slice(-150).join('\n');
                 errorLogs.push({
                   jobName: job.name,
-                  logs: logLines
+                  logs: logLines.substring(0, 8000) // 限制长度
                 });
               } catch (e) {
                 errorLogs.push({ jobName: job.name, logs: 'Failed to fetch logs' });
@@ -112,54 +106,86 @@ jobs:
 
             core.setOutput('result', JSON.stringify(result));
             core.setOutput('issue_number', issueNumber || '');
+            core.setOutput('error_logs_json', JSON.stringify(errorLogs));
             return result;
 
-      - name: Analyze Error with Claude
+      - name: Analyze Error with Claude (OpenRouter)
         id: analyze
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.OPENROUTER_API_KEY }}
-          direct_prompt: |
-            你是一个 CI/CD 错误分析专家。请分析以下 GitHub Actions workflow 失败的原因，并提供简洁的分析报告。
-
-            ## Workflow 信息
-            - Workflow: ${{ fromJSON(steps.error_info.outputs.result).workflowName }}
-            - Branch: ${{ fromJSON(steps.error_info.outputs.result).headBranch }}
-            - 失败的 Jobs: ${{ join(fromJSON(steps.error_info.outputs.result).failedJobs, ', ') }}
-
-            ## 错误日志
-            ```
-            ${{ toJSON(fromJSON(steps.error_info.outputs.result).errorLogs) }}
-            ```
-
-            请输出以下格式的分析报告（使用中文）：
-
-            ## 🔍 错误分析
-
-            ### 根本原因
-            [一句话描述根本原因]
-
-            ### 错误类型
-            [选择一个: 配置问题 | 代码错误 | 输入缺失 | 权限问题 | 临时故障 | 其他]
-
-            ### 详细说明
-            [2-3句话详细解释问题]
-
-            ### 建议修复方案
-            [列出1-3个具体的修复步骤]
-
-            ### 是否可自动修复
-            [是/否] - [原因]
-          allowed_tools: ""
         env:
-          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          ERROR_INFO='${{ steps.error_info.outputs.result }}'
+          WORKFLOW_NAME=$(echo "$ERROR_INFO" | jq -r '.workflowName')
+          HEAD_BRANCH=$(echo "$ERROR_INFO" | jq -r '.headBranch')
+          FAILED_JOBS=$(echo "$ERROR_INFO" | jq -r '.failedJobs | join(", ")')
+          ERROR_LOGS='${{ steps.error_info.outputs.error_logs_json }}'
+
+          # 构建 prompt
+          PROMPT="你是一个 CI/CD 错误分析专家。请分析以下 GitHub Actions workflow 失败的原因，并提供简洁的分析报告。
+
+          ## Workflow 信息
+          - Workflow: ${WORKFLOW_NAME}
+          - Branch: ${HEAD_BRANCH}
+          - 失败的 Jobs: ${FAILED_JOBS}
+
+          ## 错误日志
+          ${ERROR_LOGS}
+
+          请输出以下格式的分析报告（使用中文）：
+
+          ## 🔍 错误分析
+
+          ### 根本原因
+          [一句话描述根本原因]
+
+          ### 错误类型
+          [选择一个: 配置问题 | 代码错误 | 输入缺失 | 权限问题 | 临时故障 | 其他]
+
+          ### 详细说明
+          [2-3句话详细解释问题]
+
+          ### 建议修复方案
+          [列出1-3个具体的修复步骤]
+
+          ### 是否可自动修复
+          [是/否] - [原因]"
+
+          # 调用 OpenRouter API
+          RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${OPENROUTER_API_KEY}" \
+            -d "$(jq -n \
+              --arg prompt "$PROMPT" \
+              '{
+                "model": "anthropic/claude-sonnet-4",
+                "messages": [{"role": "user", "content": $prompt}],
+                "max_tokens": 1500
+              }')")
+
+          # 提取分析结果
+          ANALYSIS=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "AI 分析失败，请查看原始日志"')
+
+          # 保存到文件以便后续步骤使用
+          echo "$ANALYSIS" > /tmp/analysis.md
+
+          # 设置输出
+          echo "analysis<<EOF" >> $GITHUB_OUTPUT
+          echo "$ANALYSIS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Post Analysis to Issue
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
             const errorInfo = ${{ steps.error_info.outputs.result }};
-            const analysis = `${{ steps.analyze.outputs.response }}`;
+
+            let analysis = '';
+            try {
+              analysis = fs.readFileSync('/tmp/analysis.md', 'utf8');
+            } catch (e) {
+              analysis = '_AI 分析暂不可用_';
+            }
 
             const reportBody = [
               "## ❌ Workflow 执行失败",
@@ -176,7 +202,7 @@ jobs:
               "",
               "---",
               "",
-              analysis || "_AI 分析暂不可用_",
+              analysis,
               "",
               "---",
               "_自动生成 - Error Handler with AI Analysis_"
@@ -207,6 +233,7 @@ jobs:
               });
 
               core.setOutput('target_issue', errorInfo.issueNumber);
+              console.log(`✅ 已评论到 Issue #${errorInfo.issueNumber}`);
             } else {
               // 创建新 Issue
               const newIssue = await github.rest.issues.create({
@@ -218,26 +245,22 @@ jobs:
               });
 
               core.setOutput('target_issue', newIssue.data.number);
+              console.log(`✅ 已创建 Issue #${newIssue.data.number}`);
             }
 
       - name: Check if Auto-Fix is Possible
         id: check_fix
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const analysis = `${{ steps.analyze.outputs.response }}`;
+        run: |
+          ANALYSIS=$(cat /tmp/analysis.md || echo "")
 
-            // 简单判断是否可以自动修复
-            const canAutoFix = analysis.includes('是否可自动修复') &&
-                               analysis.includes('是') &&
-                               !analysis.includes('输入缺失') &&
-                               !analysis.includes('配置问题');
-
-            // 检查是否是代码错误
-            const isCodeError = analysis.includes('代码错误');
-
-            core.setOutput('can_auto_fix', canAutoFix && isCodeError);
-            return { canAutoFix, isCodeError };
+          # 简单判断是否可以自动修复
+          if echo "$ANALYSIS" | grep -q "是否可自动修复" && \
+             echo "$ANALYSIS" | grep -q "代码错误" && \
+             echo "$ANALYSIS" | grep -E "是否可自动修复.*是|是.*是否可自动修复" | grep -qv "否"; then
+            echo "can_auto_fix=true" >> $GITHUB_OUTPUT
+          else
+            echo "can_auto_fix=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Trigger Auto-Fix (if applicable)
         if: steps.check_fix.outputs.can_auto_fix == 'true' && inputs.test_mode != true
