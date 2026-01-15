@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -89,7 +90,10 @@ func (h *InsightHandler) Get(c *gin.Context) {
 	}
 
 	// TODO: Verify user ownership
-	c.JSON(http.StatusOK, gin.H{"data": insight})
+
+	// Convert to response format
+	response := h.convertToDetailResponse(insight)
+	c.JSON(http.StatusOK, response)
 }
 
 // Create creates a new insight from a source URL.
@@ -564,6 +568,67 @@ func (h *InsightHandler) ClearChatHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "对话历史已清空"})
 }
 
+// Process manually triggers reprocessing of an insight.
+// POST /api/v1/insights/:id/process
+func (h *InsightHandler) Process(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":      "无效的 Insight ID",
+			"request_id": c.GetString("request_id"),
+		})
+		return
+	}
+
+	// Get the insight
+	insight, err := h.repo.GetByID(c.Request.Context(), uint(id))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":      "Insight 不存在",
+				"request_id": c.GetString("request_id"),
+			})
+			return
+		}
+		h.log.Error("Failed to get insight", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":      "获取 Insight 失败",
+			"request_id": c.GetString("request_id"),
+		})
+		return
+	}
+
+	// TODO: Verify user ownership
+
+	// Reset status to pending
+	insight.Status = models.InsightStatusPending
+	insight.ErrorMessage = ""
+	if err := h.repo.Update(c.Request.Context(), insight); err != nil {
+		h.log.Error("Failed to update insight status", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":      "更新 Insight 状态失败",
+			"request_id": c.GetString("request_id"),
+		})
+		return
+	}
+
+	// Trigger async reprocessing if processor is available
+	if h.processor != nil {
+		// Use background context for async processing since request context may be cancelled
+		go h.processor.ProcessInsightAsync(context.Background(), insight.ID)
+		h.log.Info("Triggered manual insight reprocessing", zap.Uint("insight_id", insight.ID))
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": gin.H{
+			"id":      insight.ID,
+			"status":  insight.Status,
+			"message": "重新处理已启动",
+		},
+	})
+}
+
 // GetShared returns a publicly shared insight.
 // GET /api/v1/shared/:token
 func (h *InsightHandler) GetShared(c *gin.Context) {
@@ -595,4 +660,45 @@ func (h *InsightHandler) GetShared(c *gin.Context) {
 
 	// TODO: Apply ShareConfig to filter what's visible
 	c.JSON(http.StatusOK, gin.H{"data": insight})
+}
+
+// convertToDetailResponse converts an Insight model to InsightDetailResponse.
+func (h *InsightHandler) convertToDetailResponse(insight *models.Insight) *models.InsightDetailResponse {
+	// Parse key_points from JSON
+	var keyPoints []string
+	if len(insight.KeyPoints) > 0 {
+		if err := json.Unmarshal(insight.KeyPoints, &keyPoints); err != nil {
+			h.log.Warn("Failed to unmarshal key_points", zap.Error(err))
+			keyPoints = []string{}
+		}
+	}
+
+	// Parse transcripts from JSON
+	var transcripts []models.TranscriptItem
+	if len(insight.Transcripts) > 0 {
+		if err := json.Unmarshal(insight.Transcripts, &transcripts); err != nil {
+			h.log.Warn("Failed to unmarshal transcripts", zap.Error(err))
+			transcripts = []models.TranscriptItem{}
+		}
+	}
+
+	return &models.InsightDetailResponse{
+		ID:           insight.ID,
+		SourceType:   insight.SourceType,
+		SourceURL:    insight.SourceURL,
+		SourceID:     insight.SourceID,
+		Title:        insight.Title,
+		Author:       insight.Author,
+		ThumbnailURL: insight.ThumbnailURL,
+		Duration:     insight.Duration,
+		PublishedAt:  insight.PublishedAt,
+		Summary:      insight.Summary,
+		KeyPoints:    keyPoints,
+		RawContent:   insight.RawContent,
+		TransContent: insight.TransContent,
+		Transcripts:  transcripts,
+		Status:       insight.Status,
+		Highlights:   insight.Highlights,
+		CreatedAt:    insight.CreatedAt,
+	}
 }

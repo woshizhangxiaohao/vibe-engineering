@@ -130,6 +130,7 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 				insights.GET("/:id", insightHandler.Get)
 				insights.PATCH("/:id", insightHandler.Update)
 				insights.DELETE("/:id", insightHandler.Delete)
+				insights.POST("/:id/process", insightHandler.Process)
 
 				// Highlight routes
 				insights.GET("/:id/highlights", insightHandler.ListHighlights)
