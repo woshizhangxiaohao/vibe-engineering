@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { MemoryRail } from "@/components/insights/MemoryRail";
+import { InsightCanvas } from "@/components/insights/InsightCanvas";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,7 +18,7 @@ export default function InsightsPage() {
       {/* Left Sidebar - Memory Rail */}
       <aside
         className={cn(
-          "w-80 border-r border-border/50",
+          "w-80 border-r border-border/50 flex-shrink-0",
           "hidden md:block"
         )}
       >
@@ -28,40 +29,32 @@ export default function InsightsPage() {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col">
-        {/* Placeholder for future content */}
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center space-y-4 max-w-md px-6">
-            <h1 className="text-4xl font-bold tracking-tight">
-              InsightFlow
-            </h1>
-            <p className="text-lg text-muted-foreground">
-              AI 灵感解析工作台
-            </p>
-            {selectedInsightId ? (
-              <div className="mt-8 p-6 bg-muted/50 rounded-2xl">
-                <p className="text-sm text-muted-foreground">
-                  已选中 Insight ID: {selectedInsightId}
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  内容详情面板即将上线...
-                </p>
-              </div>
-            ) : (
+      <main className="flex-1 flex flex-col min-w-0">
+        {selectedInsightId ? (
+          <InsightCanvas insightId={selectedInsightId} />
+        ) : (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center space-y-4 max-w-md px-6">
+              <h1 className="text-4xl font-bold tracking-tight">
+                InsightFlow
+              </h1>
+              <p className="text-lg text-muted-foreground">
+                AI 灵感解析工作台
+              </p>
               <div className="mt-8 p-6 bg-muted/50 rounded-2xl">
                 <p className="text-sm text-muted-foreground">
                   从左侧选择一条记录，或点击「新建解析」开始
                 </p>
               </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </main>
 
       {/* Right Sidebar - Reserved for future features */}
       <aside
         className={cn(
-          "w-80 border-l border-border/50",
+          "w-80 border-l border-border/50 flex-shrink-0",
           "hidden lg:block bg-muted/20"
         )}
       >

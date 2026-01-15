@@ -99,3 +99,50 @@ export interface CreateInsightResponse {
   message: string;
 }
 
+/**
+ * Transcript item with timestamp
+ */
+export interface TranscriptItem {
+  timestamp: string; // e.g., "05:12"
+  seconds: number; // time in seconds
+  text: string; // transcript text
+}
+
+/**
+ * Highlight annotation
+ */
+export interface Highlight {
+  id: number;
+  insight_id: number;
+  text: string;
+  start_offset: number;
+  end_offset: number;
+  color: string;
+  note?: string;
+  created_at: string;
+}
+
+/**
+ * Insight detail response from GET /api/v1/insights/:id
+ */
+export interface InsightDetailResponse {
+  id: number;
+  source_type: InsightSourceType;
+  source_url: string;
+  source_id: string;
+  title: string;
+  author: string;
+  thumbnail_url: string;
+  duration: number; // seconds
+  published_at?: string;
+  summary: string;
+  key_points: string[];
+  raw_content?: string;
+  trans_content?: string;
+  transcripts?: TranscriptItem[];
+  status: InsightStatus;
+  error_message?: string;
+  highlights?: Highlight[];
+  created_at: string;
+}
+

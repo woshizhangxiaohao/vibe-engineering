@@ -94,6 +94,7 @@ import type {
   InsightsListResponse,
   CreateInsightRequest,
   CreateInsightResponse,
+  InsightDetailResponse,
 } from "./types";
 
 export const insightApi = {
@@ -122,4 +123,20 @@ export const insightApi = {
    */
   createInsight: (data: CreateInsightRequest) =>
     apiClient.post<CreateInsightResponse>("/v1/insights", data),
+
+  /**
+   * Get insight detail by ID
+   * @param id - Insight ID
+   */
+  getInsightDetail: (id: number) =>
+    apiClient.get<InsightDetailResponse>(`/v1/insights/${id}`),
+
+  /**
+   * Reprocess a failed insight
+   * @param id - Insight ID
+   */
+  reprocessInsight: (id: number) =>
+    apiClient.post<{ status: string; message: string }>(
+      `/v1/insights/${id}/process`
+    ),
 };
