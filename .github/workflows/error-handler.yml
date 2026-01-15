@@ -34,9 +34,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Collect Error Info
-        id: error_info
+      - name: Collect Error Info and Analyze
+        id: analyze
         uses: actions/github-script@v7
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         with:
           script: |
             // 支持手动触发和自动触发两种模式
@@ -44,6 +46,8 @@ jobs:
             const runId = isManualTrigger
               ? parseInt('${{ inputs.run_id }}')
               : context.payload.workflow_run.id;
+
+            console.log(`📋 分析 Workflow Run: ${runId}`);
 
             // 获取 workflow run 信息
             const runData = await github.rest.actions.getWorkflowRun({
@@ -71,29 +75,30 @@ jobs:
             });
 
             const failedJobs = jobs.data.jobs.filter(job => job.conclusion === 'failure');
+            console.log(`❌ 失败的 Jobs: ${failedJobs.map(j => j.name).join(', ')}`);
 
             // 获取每个失败 job 的日志（截取最后部分）
             let errorLogs = [];
-            for (const job of failedJobs.slice(0, 2)) { // 最多2个 job
+            for (const job of failedJobs.slice(0, 2)) {
               try {
                 const logs = await github.rest.actions.downloadJobLogsForWorkflowRun({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   job_id: job.id
                 });
-                // 只保留最后 150 行，避免太长
-                const logLines = logs.data.split('\n').slice(-150).join('\n');
+                // 只保留最后 100 行，避免太长
+                const logLines = logs.data.split('\n').slice(-100).join('\n');
                 errorLogs.push({
                   jobName: job.name,
-                  logs: logLines.substring(0, 8000) // 限制长度
+                  logs: logLines.substring(0, 5000)
                 });
               } catch (e) {
                 errorLogs.push({ jobName: job.name, logs: 'Failed to fetch logs' });
               }
             }
 
-            // 保存结果
-            const result = {
+            // 构建错误信息
+            const errorInfo = {
               issueNumber,
               runId: run.id,
               runUrl: run.html_url,
@@ -104,89 +109,65 @@ jobs:
               errorLogs
             };
 
-            core.setOutput('result', JSON.stringify(result));
-            core.setOutput('issue_number', issueNumber || '');
-            core.setOutput('error_logs_json', JSON.stringify(errorLogs));
-            return result;
+            // 构建 prompt
+            const prompt = `你是一个 CI/CD 错误分析专家。请分析以下 GitHub Actions workflow 失败的原因，并提供简洁的分析报告。
 
-      - name: Analyze Error with Claude (OpenRouter)
-        id: analyze
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |
-          ERROR_INFO='${{ steps.error_info.outputs.result }}'
-          WORKFLOW_NAME=$(echo "$ERROR_INFO" | jq -r '.workflowName')
-          HEAD_BRANCH=$(echo "$ERROR_INFO" | jq -r '.headBranch')
-          FAILED_JOBS=$(echo "$ERROR_INFO" | jq -r '.failedJobs | join(", ")')
-          ERROR_LOGS='${{ steps.error_info.outputs.error_logs_json }}'
+            ## Workflow 信息
+            - Workflow: ${errorInfo.workflowName}
+            - Branch: ${errorInfo.headBranch}
+            - 失败的 Jobs: ${errorInfo.failedJobs.join(', ')}
 
-          # 构建 prompt
-          PROMPT="你是一个 CI/CD 错误分析专家。请分析以下 GitHub Actions workflow 失败的原因，并提供简洁的分析报告。
+            ## 错误日志
+            ${JSON.stringify(errorInfo.errorLogs, null, 2)}
 
-          ## Workflow 信息
-          - Workflow: ${WORKFLOW_NAME}
-          - Branch: ${HEAD_BRANCH}
-          - 失败的 Jobs: ${FAILED_JOBS}
+            请输出以下格式的分析报告（使用中文）：
 
-          ## 错误日志
-          ${ERROR_LOGS}
+            ## 🔍 错误分析
 
-          请输出以下格式的分析报告（使用中文）：
+            ### 根本原因
+            [一句话描述根本原因]
 
-          ## 🔍 错误分析
+            ### 错误类型
+            [选择一个: 配置问题 | 代码错误 | 输入缺失 | 权限问题 | 临时故障 | 其他]
 
-          ### 根本原因
-          [一句话描述根本原因]
+            ### 详细说明
+            [2-3句话详细解释问题]
 
-          ### 错误类型
-          [选择一个: 配置问题 | 代码错误 | 输入缺失 | 权限问题 | 临时故障 | 其他]
+            ### 建议修复方案
+            [列出1-3个具体的修复步骤]
 
-          ### 详细说明
-          [2-3句话详细解释问题]
+            ### 是否可自动修复
+            [是/否] - [原因]`;
 
-          ### 建议修复方案
-          [列出1-3个具体的修复步骤]
-
-          ### 是否可自动修复
-          [是/否] - [原因]"
-
-          # 调用 OpenRouter API
-          RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${OPENROUTER_API_KEY}" \
-            -d "$(jq -n \
-              --arg prompt "$PROMPT" \
-              '{
-                "model": "anthropic/claude-sonnet-4",
-                "messages": [{"role": "user", "content": $prompt}],
-                "max_tokens": 1500
-              }')")
-
-          # 提取分析结果
-          ANALYSIS=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "AI 分析失败，请查看原始日志"')
-
-          # 保存到文件以便后续步骤使用
-          echo "$ANALYSIS" > /tmp/analysis.md
-
-          # 设置输出
-          echo "analysis<<EOF" >> $GITHUB_OUTPUT
-          echo "$ANALYSIS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Post Analysis to Issue
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const errorInfo = ${{ steps.error_info.outputs.result }};
-
-            let analysis = '';
+            // 调用 OpenRouter API
+            let analysis = '_AI 分析暂不可用_';
             try {
-              analysis = fs.readFileSync('/tmp/analysis.md', 'utf8');
+              console.log('🤖 调用 Claude API 进行分析...');
+              const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`
+                },
+                body: JSON.stringify({
+                  model: 'anthropic/claude-sonnet-4',
+                  messages: [{ role: 'user', content: prompt }],
+                  max_tokens: 1500
+                })
+              });
+
+              const data = await response.json();
+              if (data.choices && data.choices[0] && data.choices[0].message) {
+                analysis = data.choices[0].message.content;
+                console.log('✅ AI 分析完成');
+              } else {
+                console.log('⚠️ API 响应格式异常:', JSON.stringify(data).substring(0, 500));
+              }
             } catch (e) {
-              analysis = '_AI 分析暂不可用_';
+              console.log('❌ API 调用失败:', e.message);
             }
 
+            // 构建报告
             const reportBody = [
               "## ❌ Workflow 执行失败",
               "",
@@ -208,8 +189,8 @@ jobs:
               "_自动生成 - Error Handler with AI Analysis_"
             ].join("\n");
 
+            // 发布到 Issue
             if (errorInfo.issueNumber) {
-              // 评论到关联的 Issue
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -232,8 +213,8 @@ jobs:
                 labels: ['❌ ai-failed', '🔍 analyzed']
               });
 
-              core.setOutput('target_issue', errorInfo.issueNumber);
               console.log(`✅ 已评论到 Issue #${errorInfo.issueNumber}`);
+              core.setOutput('target_issue', errorInfo.issueNumber);
             } else {
               // 创建新 Issue
               const newIssue = await github.rest.issues.create({
@@ -244,51 +225,58 @@ jobs:
                 labels: ['🐛 bug', '🤖 auto-generated', 'workflow-failure', '🔍 analyzed']
               });
 
-              core.setOutput('target_issue', newIssue.data.number);
               console.log(`✅ 已创建 Issue #${newIssue.data.number}`);
+              core.setOutput('target_issue', newIssue.data.number);
             }
 
-      - name: Check if Auto-Fix is Possible
-        id: check_fix
-        run: |
-          ANALYSIS=$(cat /tmp/analysis.md || echo "")
+            // 判断是否可以自动修复
+            const canAutoFix = analysis.includes('代码错误') &&
+                               analysis.includes('是否可自动修复') &&
+                               !analysis.includes('否 -') &&
+                               !analysis.includes('输入缺失') &&
+                               !analysis.includes('配置问题');
 
-          # 简单判断是否可以自动修复
-          if echo "$ANALYSIS" | grep -q "是否可自动修复" && \
-             echo "$ANALYSIS" | grep -q "代码错误" && \
-             echo "$ANALYSIS" | grep -E "是否可自动修复.*是|是.*是否可自动修复" | grep -qv "否"; then
-            echo "can_auto_fix=true" >> $GITHUB_OUTPUT
-          else
-            echo "can_auto_fix=false" >> $GITHUB_OUTPUT
-          fi
+            core.setOutput('can_auto_fix', canAutoFix);
+            core.setOutput('issue_number', errorInfo.issueNumber || '');
+            core.setOutput('workflow_name', errorInfo.workflowName);
+
+            return { errorInfo, analysis, canAutoFix };
 
       - name: Trigger Auto-Fix (if applicable)
-        if: steps.check_fix.outputs.can_auto_fix == 'true' && inputs.test_mode != true
+        if: steps.analyze.outputs.can_auto_fix == 'true' && inputs.test_mode != true
         uses: actions/github-script@v7
         with:
           script: |
-            const errorInfo = ${{ steps.error_info.outputs.result }};
+            const issueNumber = '${{ steps.analyze.outputs.issue_number }}';
+            const workflowName = '${{ steps.analyze.outputs.workflow_name }}';
+
+            if (!issueNumber) {
+              console.log('⚠️ 无关联 Issue，跳过自动修复');
+              return;
+            }
 
             // 触发 fix-pr workflow
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'fix-pr.yml',
-              ref: 'main',
-              inputs: {
-                pr_number: String(errorInfo.issueNumber || ''),
-                error_context: `Workflow ${errorInfo.workflowName} failed. Check issue for AI analysis.`
-              }
-            }).catch(e => {
-              console.log('Could not trigger auto-fix:', e.message);
-            });
+            try {
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'fix-pr.yml',
+                ref: 'main',
+                inputs: {
+                  pr_number: issueNumber,
+                  error_context: `Workflow ${workflowName} failed. Check issue for AI analysis.`
+                }
+              });
 
-            // 评论通知
-            if (errorInfo.issueNumber) {
+              // 评论通知
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: errorInfo.issueNumber,
+                issue_number: parseInt(issueNumber),
                 body: '🔧 **正在尝试自动修复...** 请稍候查看结果。'
               });
+
+              console.log('✅ 已触发自动修复');
+            } catch (e) {
+              console.log('❌ 无法触发自动修复:', e.message);
             }
