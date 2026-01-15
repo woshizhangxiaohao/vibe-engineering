@@ -1,0 +1,867 @@
+name: Vibe Agent
+
+# ============================================================
+# 统一 Agent 入口
+# 替代: issue-router.yml, agent-ui.yml, backend-agent.yml, frontend-agent.yml
+# ============================================================
+#
+# 命令格式:
+#   /agent ui              - 生成 UI 设计规格
+#   /agent be              - 生成后端代码
+#   /agent fe              - 生成前端代码
+#   /agent be --spec #123  - 指定 UI Spec 来源
+#
+# 兼容旧命令:
+#   /agent-ui, /agent-be, /agent-fe
+#
+# 输出策略:
+#   - UI Spec → docs/specs/issue-{number}-ui.md + PR
+#   - 后端代码 → PR
+#   - 前端代码 → PR
+#   - 不再在 Issue 评论中输出长内容，避免折叠问题
+# ============================================================
+
+on:
+  issue_comment:
+    types: [created]
+
+env:
+  # UI Spec 输出目录
+  SPEC_DIR: docs/specs
+
+jobs:
+  # ============================================================
+  # Job 1: 解析命令
+  # ============================================================
+  parse-command:
+    runs-on: ubuntu-latest
+    outputs:
+      agent_type: ${{ steps.parse.outputs.agent_type }}
+      spec_source: ${{ steps.parse.outputs.spec_source }}
+      user_instructions: ${{ steps.parse.outputs.user_instructions }}
+      should_run: ${{ steps.parse.outputs.should_run }}
+
+    steps:
+      - name: Parse Agent Command
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.comment.body || '';
+
+            // 命令匹配规则（优先级从高到低）
+            const patterns = [
+              // 新命令格式: /agent ui, /agent be, /agent fe
+              { regex: /\/agent\s+(ui|be|fe)(?:\s+|$)/i, group: 1 },
+              // 旧命令格式兼容: /agent-ui, /agent-be, /agent-fe
+              { regex: /\/agent-(ui|be|fe)(?:\s+|$)/i, group: 1 },
+              // 带空格的旧格式: /agent ui (without dash)
+              { regex: /\/agent\s+ui(?:\s+|$)/i, type: 'ui' },
+            ];
+
+            let agentType = null;
+
+            for (const pattern of patterns) {
+              const match = body.match(pattern.regex);
+              if (match) {
+                agentType = pattern.type || match[pattern.group].toLowerCase();
+                break;
+              }
+            }
+
+            if (!agentType) {
+              console.log('❌ 未识别到有效命令');
+              core.setOutput('should_run', 'false');
+              return;
+            }
+
+            console.log(`✅ 识别命令类型: ${agentType}`);
+
+            // 提取 --spec 参数（用于 be/fe 指定 UI Spec 来源）
+            let specSource = '';
+            const specMatch = body.match(/--spec\s+#?(\d+)/i);
+            if (specMatch) {
+              specSource = specMatch[1];
+              console.log(`📋 指定 Spec 来源: Issue #${specSource}`);
+            }
+
+            // 提取用户额外指令（移除命令本身和参数）
+            let userInstructions = body
+              .replace(/\/agent[-\s]+(ui|be|fe)/gi, '')
+              .replace(/--spec\s+#?\d+/gi, '')
+              .replace(/https:\/\/github\.com\/[^\s]+/g, '')  // 移除 URL
+              .trim();
+
+            if (userInstructions) {
+              console.log(`💬 用户指令: ${userInstructions}`);
+            }
+
+            core.setOutput('agent_type', agentType);
+            core.setOutput('spec_source', specSource);
+            core.setOutput('user_instructions', userInstructions);
+            core.setOutput('should_run', 'true');
+
+  # ============================================================
+  # Job 2: UI Agent - 生成 UI 设计规格
+  # ============================================================
+  agent-ui:
+    needs: parse-command
+    if: needs.parse-command.outputs.should_run == 'true' && needs.parse-command.outputs.agent_type == 'ui'
+    runs-on: ubuntu-latest
+
+    permissions:
+      issues: write
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config user.name "vibe-agent[bot]"
+          git config user.email "vibe-agent@github-actions.bot"
+
+      - name: Generate UI Spec
+        id: generate
+        uses: actions/github-script@v7
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          USER_INSTRUCTIONS: ${{ needs.parse-command.outputs.user_instructions }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const issue = context.payload.issue;
+            const issueNumber = issue.number;
+            const userInstructions = process.env.USER_INSTRUCTIONS || '';
+
+            console.log('='.repeat(60));
+            console.log('🎨 UI AGENT - 生成 UI 设计规格');
+            console.log('='.repeat(60));
+
+            // Step 1: PM Compiler - 将 PRD 转换为清晰的产品需求规格
+            console.log('\n📝 Step 1: PM Compiler...');
+
+            const pmPrompt = [
+              '你是一个【需求编译器（PM Requirement Compiler）】。',
+              '',
+              '你的职责是将【人类 PM 编写的需求文本】转换为【清晰的产品需求规格】。',
+              '',
+              '输入（PM 原始需求）:',
+              `标题: ${issue.title}`,
+              `内容: ${issue.body || '无'}`,
+              '',
+              userInstructions ? `用户额外指令: ${userInstructions}` : '',
+              '',
+              '输出要求:',
+              '- 消除歧义，冻结事实',
+              '- 明确禁止项和边界情况',
+              '- 不得新增原需求里不存在的新功能',
+              '',
+              '输出格式（JSON）:',
+              '{',
+              '  "product_goal": "产品目标（一句话）",',
+              '  "user_actions": ["用户动作 → 系统反应"],',
+              '  "input_rules": ["输入规则"],',
+              '  "output_rules": ["输出规则"],',
+              '  "forbidden_actions": ["禁止行为"],',
+              '  "edge_cases": ["异常处理"]',
+              '}',
+              '',
+              '只返回 JSON。'
+            ].join('\n');
+
+            const pmRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                model: 'google/gemini-2.0-flash-001',
+                messages: [{ role: 'user', content: pmPrompt }],
+                temperature: 0.3
+              })
+            });
+
+            if (!pmRes.ok) {
+              throw new Error(`PM Compiler 失败: ${pmRes.status}`);
+            }
+
+            const pmData = await pmRes.json();
+            let pmResult = pmData.choices?.[0]?.message?.content || '';
+
+            // 提取 JSON
+            const jsonMatch = pmResult.match(/```(?:json)?\s*([\s\S]*?)```/) ||
+                              pmResult.match(/(\{[\s\S]*\})/);
+            if (jsonMatch) pmResult = jsonMatch[1];
+
+            let compiledRequirement;
+            try {
+              const parsed = JSON.parse(pmResult);
+              compiledRequirement = [
+                '## 产品目标',
+                parsed.product_goal || '未定义',
+                '',
+                '## 核心用户动作',
+                (parsed.user_actions || []).map((a, i) => `${i + 1}. ${a}`).join('\n'),
+                '',
+                '## 输入规则',
+                (parsed.input_rules || []).map(r => `- ${r}`).join('\n'),
+                '',
+                '## 输出规则',
+                (parsed.output_rules || []).map(r => `- ${r}`).join('\n'),
+                '',
+                '## 禁止行为',
+                (parsed.forbidden_actions || []).map(f => `- ${f}`).join('\n'),
+                '',
+                '## 异常与边界',
+                (parsed.edge_cases || []).map(e => `- ${e}`).join('\n')
+              ].join('\n');
+            } catch (e) {
+              console.log('⚠️ JSON 解析失败，使用原始内容');
+              compiledRequirement = pmResult;
+            }
+
+            console.log('✅ PM Compiler 完成');
+
+            // Step 2: UI Spec Generator
+            console.log('\n🎨 Step 2: UI Spec Generator...');
+
+            const uiPrompt = [
+              '你是 UI 设计规格生成器。',
+              '',
+              '将产品需求转换为【UI 设计规格】。',
+              '**注意：只关注 UI 设计层面，不涉及具体的文件路径和代码实现。**',
+              '',
+              '## 可用的 shadcn/ui 组件',
+              '布局: Card, Tabs, Separator, ScrollArea',
+              '表单: Button, Input, Textarea, Select, Switch, Form',
+              '反馈: Alert, Dialog, Sheet, Tooltip, Sonner(toast), Progress, Skeleton',
+              '导航: Breadcrumb, DropdownMenu, Command, Pagination',
+              '数据: Avatar, Badge, Table, Calendar',
+              '',
+              '## Base.org 设计系统规范',
+              '- 颜色：Base Blue (#0000ff) 作为主色，90% 区域使用灰度',
+              '- 圆角：按钮/输入框 12px，卡片 12-16px',
+              '- 无阴影、无边框设计',
+              '',
+              '## 需求',
+              compiledRequirement,
+              '',
+              '## 输出格式',
+              '',
+              '# UI 设计规格',
+              '',
+              '## 功能概述',
+              '一段话描述功能',
+              '',
+              '## 页面布局',
+              '整体布局结构',
+              '',
+              '## 组件设计',
+              '### 组件名称',
+              '- 功能描述',
+              '- 使用的 shadcn/ui 组件',
+              '- 视觉样式',
+              '- 状态变化',
+              '',
+              '## 交互流程',
+              '用户操作 → 界面反应',
+              '',
+              '## 响应式设计',
+              '不同屏幕的适配',
+              '',
+              '---',
+              '只输出 UI 设计规格，不要写代码。'
+            ].join('\n');
+
+            const uiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                model: 'google/gemini-2.0-flash-001',
+                messages: [{ role: 'user', content: uiPrompt }],
+                temperature: 0.5
+              })
+            });
+
+            if (!uiRes.ok) {
+              throw new Error(`UI Spec Generator 失败: ${uiRes.status}`);
+            }
+
+            const uiData = await uiRes.json();
+            const uiSpec = uiData.choices?.[0]?.message?.content || '';
+
+            console.log('✅ UI Spec 生成完成');
+
+            // Step 3: 写入文件
+            const specDir = process.env.SPEC_DIR || 'docs/specs';
+            const specFileName = `issue-${issueNumber}-ui.md`;
+            const specFilePath = path.join(specDir, specFileName);
+
+            // 确保目录存在
+            fs.mkdirSync(specDir, { recursive: true });
+
+            const fileContent = [
+              `# UI Spec for Issue #${issueNumber}`,
+              '',
+              `> 原始需求: [#${issueNumber}](https://github.com/${context.repo.owner}/${context.repo.repo}/issues/${issueNumber})`,
+              `> 生成时间: ${new Date().toISOString()}`,
+              '',
+              '---',
+              '',
+              '## 需求摘要',
+              '',
+              compiledRequirement,
+              '',
+              '---',
+              '',
+              uiSpec,
+              '',
+              '---',
+              '',
+              '## 下一步',
+              '',
+              '使用以下命令生成代码：',
+              '```',
+              `/agent be --spec #${issueNumber}  # 生成后端代码`,
+              `/agent fe --spec #${issueNumber}  # 生成前端代码`,
+              '```'
+            ].join('\n');
+
+            fs.writeFileSync(specFilePath, fileContent);
+            console.log(`✅ 写入文件: ${specFilePath}`);
+
+            core.setOutput('spec_file', specFilePath);
+            core.setOutput('spec_content', fileContent);
+
+      - name: Create PR with UI Spec
+        uses: actions/github-script@v7
+        env:
+          SPEC_FILE: ${{ steps.generate.outputs.spec_file }}
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const issue = context.payload.issue;
+            const issueNumber = issue.number;
+            const specFile = process.env.SPEC_FILE;
+
+            const branchName = `ui-spec/issue-${issueNumber}`;
+
+            // 创建分支并提交
+            try {
+              execSync(`git checkout -b ${branchName}`);
+              execSync(`git add ${specFile}`);
+              execSync(`git commit -m "docs: add UI spec for issue #${issueNumber}"`);
+              execSync(`git push origin ${branchName}`);
+            } catch (e) {
+              console.error('Git 操作失败:', e.message);
+              throw e;
+            }
+
+            // 创建 PR
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[UI Spec] ${issue.title}`,
+              head: branchName,
+              base: 'main',
+              body: [
+                `## UI 设计规格`,
+                '',
+                `关联 Issue: #${issueNumber}`,
+                '',
+                `### 文件`,
+                `- \`${specFile}\``,
+                '',
+                '### 下一步',
+                '1. Review 并 Merge 此 PR',
+                '2. 在原 Issue 中执行：',
+                '   ```',
+                `   /agent be --spec #${issueNumber}`,
+                `   /agent fe --spec #${issueNumber}`,
+                '   ```',
+                '',
+                '---',
+                '🤖 Generated by Vibe Agent'
+              ].join('\n')
+            });
+
+            // 在 Issue 中添加简短评论（不放长内容，避免折叠）
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: [
+                '✅ **UI Spec 已生成**',
+                '',
+                `📄 PR: #${pr.number}`,
+                `📁 文件: \`${specFile}\``,
+                '',
+                '**下一步：**',
+                '1. Review 并 Merge PR',
+                '2. 执行 `/agent be` 或 `/agent fe` 生成代码'
+              ].join('\n')
+            });
+
+            // 更新标签
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['ui-spec-ready']
+            });
+
+  # ============================================================
+  # Job 3: Backend Agent - 生成后端代码
+  # ============================================================
+  agent-be:
+    needs: parse-command
+    if: needs.parse-command.outputs.should_run == 'true' && needs.parse-command.outputs.agent_type == 'be'
+    runs-on: ubuntu-latest
+
+    permissions:
+      issues: write
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config user.name "vibe-agent[bot]"
+          git config user.email "vibe-agent@github-actions.bot"
+
+      - name: Detect Feature Branch
+        id: feature
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const labels = issue.labels.map(l => l.name);
+
+            let featureLabel = labels.find(l => l.startsWith('feature:'));
+
+            if (!featureLabel && issue.body) {
+              const parentMatch = issue.body.match(/(?:part of|parent|belongs to|see)\s*#(\d+)/i);
+              if (parentMatch) {
+                const parentNumber = parseInt(parentMatch[1]);
+                try {
+                  const { data: parentIssue } = await github.rest.issues.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: parentNumber
+                  });
+                  featureLabel = parentIssue.labels.map(l => l.name).find(l => l.startsWith('feature:'));
+                } catch (e) {
+                  console.log(`⚠️ 无法获取父 Issue #${parentNumber}`);
+                }
+              }
+            }
+
+            const branch = featureLabel ? featureLabel.replace(':', '/') : 'main';
+            console.log(`🌿 目标分支: ${branch}`);
+            core.setOutput('branch', branch);
+
+      - name: Prepare Context
+        id: prepare
+        uses: actions/github-script@v7
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          SPEC_SOURCE: ${{ needs.parse-command.outputs.spec_source }}
+          USER_INSTRUCTIONS: ${{ needs.parse-command.outputs.user_instructions }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const issue = context.payload.issue;
+            const specSource = process.env.SPEC_SOURCE;
+            const userInstructions = process.env.USER_INSTRUCTIONS || '';
+
+            console.log('='.repeat(60));
+            console.log('🔧 BACKEND AGENT - 准备上下文');
+            console.log('='.repeat(60));
+
+            // 1. 获取 UI Spec
+            let uiSpec = '';
+
+            // 优先从文件读取
+            const specFile = `docs/specs/issue-${specSource || issue.number}-ui.md`;
+            if (fs.existsSync(specFile)) {
+              uiSpec = fs.readFileSync(specFile, 'utf8');
+              console.log(`✅ 从文件读取 UI Spec: ${specFile}`);
+            } else if (specSource) {
+              // 从指定 Issue 获取
+              try {
+                const { data: specIssue } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: parseInt(specSource)
+                });
+                uiSpec = specIssue.body || '';
+                console.log(`✅ 从 Issue #${specSource} 获取 UI Spec`);
+              } catch (e) {
+                console.log(`⚠️ 无法获取 Issue #${specSource}`);
+              }
+            } else {
+              // 使用当前 Issue 内容
+              uiSpec = issue.body || '';
+              console.log('✅ 使用当前 Issue 内容作为需求');
+            }
+
+            // 2. 生成 API Contract
+            console.log('\n📋 生成 API Contract...');
+
+            const contractPrompt = `基于以下 UI Spec，推导最小 API 契约。
+
+            ${userInstructions ? `用户要求: ${userInstructions}\n\n` : ''}
+
+            UI Spec:
+            ${uiSpec.substring(0, 8000)}
+
+            返回 JSON 数组:
+            [{"endpoint": "/api/xxx", "method": "POST", "description": "描述", "request": {}, "response": {}}]
+
+            只返回 JSON。`;
+
+            const contractRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                model: 'google/gemini-2.0-flash-001',
+                messages: [{ role: 'user', content: contractPrompt }],
+                temperature: 0.3
+              })
+            });
+
+            const contractData = await contractRes.json();
+            let apiContract = contractData.choices?.[0]?.message?.content || '[]';
+
+            const jsonMatch = apiContract.match(/```(?:json)?\s*([\s\S]*?)```/) || apiContract.match(/(\[[\s\S]*\])/);
+            if (jsonMatch) apiContract = jsonMatch[1];
+
+            try {
+              apiContract = JSON.parse(apiContract);
+              if (!Array.isArray(apiContract)) apiContract = [apiContract];
+            } catch (e) {
+              apiContract = [];
+            }
+
+            console.log(`✅ API Contract: ${apiContract.length} 个接口`);
+
+            // 3. 读取项目文件
+            const systemFiles = [
+              'backend/go.mod',
+              'backend/CLAUDE.md',
+              'backend/internal/router/router.go'
+            ];
+
+            const projectContext = {};
+            for (const filePath of systemFiles) {
+              try {
+                if (fs.existsSync(filePath)) {
+                  projectContext[filePath] = fs.readFileSync(filePath, 'utf8');
+                }
+              } catch (e) {}
+            }
+
+            const projectContextText = Object.entries(projectContext)
+              .map(([p, c]) => `## ${p}\n\`\`\`go\n${c}\n\`\`\``)
+              .join('\n\n');
+
+            // 4. 发布简短启动评论
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: [
+                '🔧 **Backend Agent 启动**',
+                '',
+                `**API Contract:** ${apiContract.length} 个接口`,
+                apiContract.slice(0, 5).map((api, i) => `- \`${api.method} ${api.endpoint}\``).join('\n'),
+                apiContract.length > 5 ? `- ... 等 ${apiContract.length - 5} 个` : '',
+                '',
+                '_正在生成代码..._'
+              ].join('\n')
+            });
+
+            // 5. 构建 Prompt
+            const prompt = `你是后端代码生成专家。
+
+            ## 任务
+            基于 API Contract 实现后端代码。
+
+            ## API Contract
+            ${JSON.stringify(apiContract, null, 2)}
+
+            ${userInstructions ? `## 用户要求\n${userInstructions}\n` : ''}
+
+            ## 项目约束
+            ${projectContextText || '无现有代码参考'}
+
+            ## 要求
+            - 遵循现有代码风格
+            - 所有文件在 backend/ 目录下
+            - 使用 Go 标准库和项目已有依赖
+            - 包含错误处理和日志记录
+
+            请生成完整的后端实现。`;
+
+            core.setOutput('prompt', prompt);
+
+      - name: Run Claude Code Action
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+        with:
+          anthropic_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          github_token: ${{ github.token }}
+          track_progress: true
+          prompt: ${{ steps.prepare.outputs.prompt }}
+          base_branch: ${{ steps.feature.outputs.branch }}
+          claude_args: |
+            --model anthropic/claude-sonnet-4.5
+            --max-turns 60
+
+      - name: Update Labels
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = '${{ job.status }}' === 'success'
+              ? ['✅ ai-completed']
+              : ['❌ ai-failed'];
+
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              name: '🤖 ai-processing'
+            }).catch(() => {});
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels
+            });
+
+  # ============================================================
+  # Job 4: Frontend Agent - 生成前端代码
+  # ============================================================
+  agent-fe:
+    needs: parse-command
+    if: needs.parse-command.outputs.should_run == 'true' && needs.parse-command.outputs.agent_type == 'fe'
+    runs-on: ubuntu-latest
+
+    permissions:
+      issues: write
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config user.name "vibe-agent[bot]"
+          git config user.email "vibe-agent@github-actions.bot"
+
+      - name: Detect Feature Branch
+        id: feature
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const labels = issue.labels.map(l => l.name);
+
+            let featureLabel = labels.find(l => l.startsWith('feature:'));
+
+            if (!featureLabel && issue.body) {
+              const parentMatch = issue.body.match(/(?:part of|parent|belongs to|see)\s*#(\d+)/i);
+              if (parentMatch) {
+                const parentNumber = parseInt(parentMatch[1]);
+                try {
+                  const { data: parentIssue } = await github.rest.issues.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: parentNumber
+                  });
+                  featureLabel = parentIssue.labels.map(l => l.name).find(l => l.startsWith('feature:'));
+                } catch (e) {
+                  console.log(`⚠️ 无法获取父 Issue #${parentNumber}`);
+                }
+              }
+            }
+
+            const branch = featureLabel ? featureLabel.replace(':', '/') : 'main';
+            console.log(`🌿 目标分支: ${branch}`);
+            core.setOutput('branch', branch);
+
+      - name: Prepare Context
+        id: prepare
+        uses: actions/github-script@v7
+        env:
+          SPEC_SOURCE: ${{ needs.parse-command.outputs.spec_source }}
+          USER_INSTRUCTIONS: ${{ needs.parse-command.outputs.user_instructions }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const issue = context.payload.issue;
+            const specSource = process.env.SPEC_SOURCE;
+            const userInstructions = process.env.USER_INSTRUCTIONS || '';
+
+            console.log('='.repeat(60));
+            console.log('🎨 FRONTEND AGENT - 准备上下文');
+            console.log('='.repeat(60));
+
+            // 1. 获取 UI Spec
+            let uiSpec = '';
+
+            const specFile = `docs/specs/issue-${specSource || issue.number}-ui.md`;
+            if (fs.existsSync(specFile)) {
+              uiSpec = fs.readFileSync(specFile, 'utf8');
+              console.log(`✅ 从文件读取 UI Spec: ${specFile}`);
+            } else if (specSource) {
+              try {
+                const { data: specIssue } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: parseInt(specSource)
+                });
+                uiSpec = specIssue.body || '';
+                console.log(`✅ 从 Issue #${specSource} 获取 UI Spec`);
+              } catch (e) {
+                console.log(`⚠️ 无法获取 Issue #${specSource}`);
+              }
+            } else {
+              uiSpec = issue.body || '';
+              console.log('✅ 使用当前 Issue 内容作为需求');
+            }
+
+            // 2. 读取项目文件
+            const systemFiles = [
+              'frontend/package.json',
+              'frontend/STYLE_GUIDE.md',
+              'frontend/lib/api/client.ts',
+              'frontend/lib/api/types.ts'
+            ];
+
+            const projectContext = {};
+            for (const filePath of systemFiles) {
+              try {
+                if (fs.existsSync(filePath)) {
+                  projectContext[filePath] = fs.readFileSync(filePath, 'utf8');
+                }
+              } catch (e) {}
+            }
+
+            const projectContextText = Object.entries(projectContext)
+              .map(([p, c]) => `## ${p}\n\`\`\`typescript\n${c}\n\`\`\``)
+              .join('\n\n');
+
+            // 3. 发布简短启动评论
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: [
+                '🎨 **Frontend Agent 启动**',
+                '',
+                `**UI Spec:** ${specSource ? `Issue #${specSource}` : '当前 Issue'}`,
+                '',
+                '_正在生成代码..._'
+              ].join('\n')
+            });
+
+            // 4. 构建 Prompt
+            const prompt = `你是前端代码生成专家。
+
+            ## 任务
+            基于 UI Spec 实现前端页面和组件。
+
+            ## UI Spec
+            ${uiSpec.substring(0, 10000)}
+
+            ${userInstructions ? `## 用户要求\n${userInstructions}\n` : ''}
+
+            ## 项目约束
+            ${projectContextText || '无现有代码参考'}
+
+            ## 技术栈
+            - Next.js 15 (App Router)
+            - React 19
+            - TypeScript
+            - Tailwind CSS
+            - shadcn/ui
+            - Base.org 设计系统
+
+            ## 要求
+            - 严格遵循 STYLE_GUIDE.md 的设计规范
+            - 使用 shadcn/ui 组件
+            - 所有文件在 frontend/ 目录下
+            - 使用 TypeScript
+            - API 调用使用 lib/api/client.ts
+
+            请生成完整的前端实现。`;
+
+            core.setOutput('prompt', prompt);
+
+      - name: Run Claude Code Action
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+        with:
+          anthropic_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          github_token: ${{ github.token }}
+          track_progress: true
+          prompt: ${{ steps.prepare.outputs.prompt }}
+          base_branch: ${{ steps.feature.outputs.branch }}
+          claude_args: |
+            --model anthropic/claude-sonnet-4.5
+            --max-turns 60
+
+      - name: Update Labels
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = '${{ job.status }}' === 'success'
+              ? ['✅ ai-completed']
+              : ['❌ ai-failed'];
+
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              name: '🤖 ai-processing'
+            }).catch(() => {});
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels
+            });

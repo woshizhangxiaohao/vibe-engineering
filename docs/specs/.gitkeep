@@ -1,0 +1,13 @@
+# UI Specs Directory
+
+This directory contains auto-generated UI specifications.
+
+## Naming Convention
+
+- `issue-{number}-ui.md` - UI spec for a specific issue
+
+## Usage
+
+1. Run `/agent ui` in an issue to generate a UI spec
+2. The spec will be saved here and a PR will be created
+3. After merging, use `/agent be --spec #{number}` or `/agent fe --spec #{number}` to generate code
