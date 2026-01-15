@@ -169,3 +169,80 @@ export interface InsightDetailResponse {
   created_at: string;
 }
 
+/**
+ * Chat 相关类型定义
+ */
+
+export type ChatMessageRole = "user" | "assistant";
+
+/**
+ * Chat message
+ */
+export interface ChatMessage {
+  id: number;
+  role: ChatMessageRole;
+  content: string;
+  created_at: string;
+}
+
+/**
+ * Send chat message request
+ */
+export interface SendChatMessageRequest {
+  message: string;
+  highlight_id?: number;
+}
+
+/**
+ * Chat history response
+ */
+export interface ChatHistoryResponse {
+  messages: ChatMessage[];
+}
+
+/**
+ * SSE streaming chunk
+ */
+export interface SSEChunk {
+  role: ChatMessageRole;
+  content: string;
+  done: boolean;
+  message_id?: number;
+}
+
+/**
+ * Entity types
+ */
+export type EntityType = "stock" | "crypto";
+
+/**
+ * Detected entity
+ */
+export interface Entity {
+  type: EntityType;
+  name: string;
+  ticker: string;
+}
+
+/**
+ * Suggestion types
+ */
+export type SuggestionType = "position" | "prediction";
+
+/**
+ * AI suggestion
+ */
+export interface Suggestion {
+  type: SuggestionType;
+  entity: string;
+  prompt: string;
+}
+
+/**
+ * Analyze entities response
+ */
+export interface AnalyzeEntitiesResponse {
+  entities: Entity[];
+  suggestions: Suggestion[];
+}
+
