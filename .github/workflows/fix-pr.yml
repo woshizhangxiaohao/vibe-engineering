@@ -1,0 +1,242 @@
+name: Fix PR Build Errors
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  fix-build-errors:
+    # 只在 PR 评论中包含 /fix 时触发
+    if: github.event.issue.pull_request && contains(github.event.comment.body, '/fix')
+    runs-on: ubuntu-latest
+
+    permissions:
+      issues: write
+      contents: write
+      pull-requests: write
+
+    steps:
+      # ========== 步骤 1：获取 PR 信息 ==========
+      - name: Get PR Details
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            
+            core.setOutput('branch', pr.head.ref);
+            core.setOutput('sha', pr.head.sha);
+            core.setOutput('title', pr.title);
+            
+            console.log(`PR Branch: ${pr.head.ref}`);
+            console.log(`PR SHA: ${pr.head.sha}`);
+
+      # ========== 步骤 2：Checkout PR 分支 ==========
+      - name: Checkout PR Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.branch }}
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config user.name "ai-fix-bot"
+          git config user.email "fix-bot@github-actions.bot"
+
+      # ========== 步骤 3：安装依赖并运行 Build ==========
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run Build and Capture Errors
+        id: build
+        working-directory: frontend
+        continue-on-error: true
+        run: |
+          # 运行 build 并捕获输出
+          BUILD_OUTPUT=$(npm run build 2>&1) || true
+          
+          # 保存到文件（处理多行输出）
+          echo "$BUILD_OUTPUT" > /tmp/build_output.txt
+          
+          # 检查是否有错误
+          if echo "$BUILD_OUTPUT" | grep -q "error"; then
+            echo "has_errors=true" >> $GITHUB_OUTPUT
+            echo "❌ Build 失败，发现错误"
+          else
+            echo "has_errors=false" >> $GITHUB_OUTPUT
+            echo "✅ Build 成功"
+          fi
+
+      # ========== 步骤 4：解析错误并评论 ==========
+      - name: Parse and Comment Errors
+        if: steps.build.outputs.has_errors == 'true'
+        id: errors
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const buildOutput = fs.readFileSync('/tmp/build_output.txt', 'utf8');
+            
+            // 提取 TypeScript/ESLint 错误
+            // 格式: ./path/to/file.tsx:line:col: error message
+            const errorPattern = /\.\/([^\s:]+):(\d+):(\d+):\s*(.+)/g;
+            const errors = [];
+            let match;
+            
+            while ((match = errorPattern.exec(buildOutput)) !== null) {
+              errors.push({
+                file: match[1],
+                line: match[2],
+                column: match[3],
+                message: match[4]
+              });
+            }
+            
+            // 也捕获 Next.js 的类型错误格式
+            // Type error: xxx
+            const typeErrorPattern = /Type error:\s*(.+)/g;
+            while ((match = typeErrorPattern.exec(buildOutput)) !== null) {
+              errors.push({
+                file: 'unknown',
+                line: '0',
+                column: '0',
+                message: `Type error: ${match[1]}`
+              });
+            }
+            
+            // 格式化错误信息
+            let errorSummary = '';
+            if (errors.length > 0) {
+              errorSummary = errors.map((e, i) => 
+                `### 错误 ${i + 1}\n- **文件**: \`${e.file}\`\n- **位置**: 行 ${e.line}, 列 ${e.column}\n- **错误**: ${e.message}`
+              ).join('\n\n');
+            } else {
+              // 如果没有匹配到具体格式，直接显示最后 100 行
+              const lines = buildOutput.split('\n');
+              const lastLines = lines.slice(-100).join('\n');
+              errorSummary = '```\n' + lastLines + '\n```';
+            }
+            
+            // 保存错误信息供 Claude 使用
+            core.setOutput('error_details', errorSummary);
+            core.setOutput('error_count', errors.length.toString());
+            
+            // 发布进度评论
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '🔍 **Build 错误分析完成**',
+                '',
+                `发现 ${errors.length || '若干'} 个错误：`,
+                '',
+                errorSummary,
+                '',
+                '---',
+                '🤖 **正在调用 AI 修复...**'
+              ].join('\n')
+            });
+
+      # ========== 步骤 5：如果没有错误，提示成功 ==========
+      - name: Comment Success
+        if: steps.build.outputs.has_errors == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '✅ **Build 成功！** 没有发现错误，无需修复。'
+            });
+
+      # ========== 步骤 6：调用 Claude 修复 ==========
+      - name: Fix with Claude
+        if: steps.build.outputs.has_errors == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+        with:
+          anthropic_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          github_token: ${{ github.token }}
+          track_progress: true
+          use_oauth: false
+          # 关键：直接在当前分支修复，不创建新 PR
+          direct_push: true
+          prompt: |
+            你是代码修复专家。当前 PR 的 Build 失败了，需要你修复。
+
+            ## PR 信息
+            - 分支: ${{ steps.pr.outputs.branch }}
+            - 标题: ${{ steps.pr.outputs.title }}
+
+            ## Build 错误详情
+            ${{ steps.errors.outputs.error_details }}
+
+            ## 任务
+            1. 仔细分析上面的错误信息
+            2. 找到对应的文件并修复错误
+            3. 确保修复后代码能正确编译
+            4. 只修复报错的问题，不要做其他改动
+
+            ## 约束
+            - 只修改有错误的文件
+            - 保持代码风格一致
+            - 参考 frontend/lib/api/types.ts 确保使用正确的类型
+            - 如果是 TypeScript 类型错误，确保使用已定义的属性
+
+            请直接修复代码。
+          claude_args: |
+            --model anthropic/claude-sonnet-4.5
+            --max-turns 30
+
+      # ========== 步骤 7：修复完成后评论 ==========
+      - name: Comment Fix Complete
+        if: steps.build.outputs.has_errors == 'true' && success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '✅ **AI 修复完成！**',
+                '',
+                '代码已推送到当前 PR 分支，Vercel 将自动重新部署。',
+                '',
+                '请检查修改是否正确。'
+              ].join('\n')
+            });
+
+      # ========== 失败处理 ==========
+      - name: Handle Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '❌ **自动修复失败**',
+                '',
+                '请查看 [Actions 日志](/${{ github.repository }}/actions/runs/${{ github.run_id }}) 了解详情。',
+                '',
+                '可能需要手动修复。'
+              ].join('\n')
+            });

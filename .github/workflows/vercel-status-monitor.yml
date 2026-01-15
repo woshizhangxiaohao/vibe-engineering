@@ -11,10 +11,87 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ============================================================
+  # Job 1: 监听 Preview 部署失败（未合并的 PR）
+  # ============================================================
+  preview-deployment-failed:
+    if: |
+      github.event_name == 'deployment_status' && 
+      github.event.deployment_status.state == 'failure' &&
+      github.event.deployment.environment == 'Preview'
+    runs-on: ubuntu-latest
+    
+    permissions:
+      issues: write
+      pull-requests: write
+    
+    steps:
+      - name: Find PR from Deployment
+        id: find_pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // 从 deployment ref 获取分支名
+            const ref = context.payload.deployment.ref;
+            console.log(`Deployment ref: ${ref}`);
+            
+            // 查找使用该分支的 Open PR
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: `${context.repo.owner}:${ref}`
+            });
+            
+            if (prs.length === 0) {
+              console.log('未找到关联的 PR');
+              return;
+            }
+            
+            const pr = prs[0];
+            core.setOutput('pr_number', pr.number);
+            console.log(`找到 PR #${pr.number}`);
+
+      - name: Comment Fix Command on PR
+        if: steps.find_pr.outputs.pr_number
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ steps.find_pr.outputs.pr_number }};
+            const deployUrl = context.payload.deployment_status.target_url;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: [
+                '❌ **Vercel Preview 部署失败**',
+                '',
+                `[查看 Vercel 日志](${deployUrl})`,
+                '',
+                '---',
+                '',
+                '### 🤖 自动修复',
+                '',
+                '评论以下命令，AI 将自动分析并修复构建错误：',
+                '',
+                '```',
+                '/fix',
+                '```'
+              ].join('\n')
+            });
+
+  # ============================================================
+  # Job 2: 监听生产环境部署（已合并的 PR）
+  # ============================================================
   track-deployment:
     # 只监听生产环境 (Production) 的部署，或者 push/手动触发时也运行
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.deployment.environment == 'Production'
     runs-on: ubuntu-latest
+    
+    permissions:
+      issues: write
+      pull-requests: write
     
     steps:
       - name: Locate PR and Issue
@@ -142,7 +219,7 @@ jobs:
             }
 
       # ========================================================
-      # 场景 C: 部署失败 (Failure/Error) -> 警告 Issue
+      # 场景 C: 部署失败 (Failure/Error) -> 警告 + 提示修复命令
       # ========================================================
       - name: Handle Failure
         if: (github.event.deployment_status.state == 'failure' || github.event.deployment_status.state == 'error') && steps.context.outputs.pr_number
@@ -150,7 +227,7 @@ jobs:
         with:
           script: |
             const prNumber = ${{ steps.context.outputs.pr_number }};
-            const prUrl = ${{ steps.context.outputs.pr_url }}; // 获取之前解析出的 URL
+            const prUrl = '${{ steps.context.outputs.pr_url }}';
             const issueNumber = ${{ steps.context.outputs.issue_number }};
             const deployUrl = context.payload.deployment_status.target_url;
 
@@ -160,6 +237,16 @@ jobs:
             
             - **来源 PR**: [PR #${prNumber}](${prUrl}) 👈 点击跳转
             - **错误日志**: [Vercel Logs](${deployUrl})
+            
+            ---
+            
+            ### 🤖 自动修复
+            
+            在 PR 中评论以下命令，AI 将自动分析并修复构建错误：
+            
+            \`\`\`
+            /fix
+            \`\`\`
             `;
 
             // 1. 在 PR 里报错
