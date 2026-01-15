@@ -17,7 +17,7 @@ export interface TextSelection {
  * @param containerRef - Reference to the container element
  * @returns Selection state and clear function
  */
-export function useTextSelection(containerRef: RefObject<HTMLElement>) {
+export function useTextSelection(containerRef: RefObject<HTMLElement | null>) {
   const [selection, setSelection] = useState<TextSelection | null>(null);
 
   const clearSelection = useCallback(() => {
