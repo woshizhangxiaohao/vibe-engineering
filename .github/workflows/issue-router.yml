@@ -59,6 +59,41 @@ jobs:
             const commentCount = comments.length;
             const shouldCreateNewIssue = matched.forceNew || commentCount >= COMMENT_THRESHOLD;
 
+            // 查找真正的根父 issue（避免多层嵌套）
+            let rootParentNumber = issue.number;
+            let rootParentTitle = issue.title;
+
+            // 检查当前 issue 是否已经是子 issue（查找 body 中的 Parent: #xxx）
+            const parentMatch = issue.body?.match(/Parent:\s*#(\d+)/);
+            if (parentMatch) {
+              // 当前 issue 是子 issue，获取其父 issue
+              const parentNumber = parseInt(parentMatch[1]);
+              try {
+                const { data: parentIssue } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: parentNumber
+                });
+                // 继续检查父 issue 是否还有父（递归找根）
+                const grandParentMatch = parentIssue.body?.match(/Parent:\s*#(\d+)/);
+                if (grandParentMatch) {
+                  rootParentNumber = parseInt(grandParentMatch[1]);
+                  // 获取根父 issue 的标题
+                  const { data: rootParent } = await github.rest.issues.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: rootParentNumber
+                  });
+                  rootParentTitle = rootParent.title;
+                } else {
+                  rootParentNumber = parentNumber;
+                  rootParentTitle = parentIssue.title;
+                }
+              } catch (e) {
+                console.log(`Warning: Could not fetch parent issue #${parentNumber}: ${e.message}`);
+              }
+            }
+
             if (shouldCreateNewIssue) {
               // 创建子 Issue
               const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
@@ -69,9 +104,11 @@ jobs:
               const commandArgs = commandMatch ? commandMatch[1] : '';
 
               // 清理父 issue 标题，移除已有的前缀和后缀
-              let cleanTitle = issue.title
+              let cleanTitle = rootParentTitle
                 // 移除开头的 agent 类型标签，如 [BE], [FE], [UI], [BE+FE] 等
                 .replace(/^\s*(\[[A-Z+]+\]\s*)+/g, '')
+                // 移除结尾的 "(from #xxx)" 后缀（可能有多个）
+                .replace(/\s*\(from #\d+\)\s*/g, '')
                 // 移除结尾的 "(子任务 from #xxx)" 后缀
                 .replace(/\s*\(子任务 from #\d+\)\s*$/g, '')
                 .trim();
@@ -79,7 +116,7 @@ jobs:
               const newIssueBody = [
                 `## 🔗 关联父 Issue`,
                 ``,
-                `Parent: #${issue.number}`,
+                `Parent: #${rootParentNumber}`,
                 ``,
                 `---`,
                 ``,
