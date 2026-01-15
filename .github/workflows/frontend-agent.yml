@@ -129,7 +129,9 @@ jobs:
               "frontend/tsconfig.json",
               "frontend/components.json",
               "frontend/app/layout.tsx",
-              "frontend/lib/api/client.ts"
+              "frontend/lib/api/client.ts",
+              "frontend/lib/api/types.ts",
+              "frontend/lib/api/examples.tsx"
             ];
 
             const projectContext = {};
@@ -194,6 +196,22 @@ jobs:
             - 使用 TypeScript
             - 遵循 Base.org 的极简设计哲学
             - API 调用使用 lib/api/client.ts
+            - 类型定义参考 lib/api/types.ts（必须使用已定义的类型和属性）
+            - 错误处理参考 lib/api/examples.tsx 的模式
+
+            ## 错误处理规范
+            ApiError 类只有以下属性：
+            - status: number (HTTP 状态码)
+            - statusText: string
+            - data?: unknown
+            - message: string (继承自 Error)
+            
+            正确用法：
+            \`\`\`typescript
+            if (err instanceof ApiError) {
+              setError(err.message);
+            }
+            \`\`\`
 
             请生成完整的前端实现。`;
 
