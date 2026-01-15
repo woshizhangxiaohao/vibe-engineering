@@ -1,0 +1,234 @@
+name: Vibe Monitor - 任务监控与自动恢复
+
+on:
+  # 每小时运行一次
+  schedule:
+    - cron: '0 * * * *'
+  # 支持手动触发
+  workflow_dispatch:
+    inputs:
+      action:
+        description: '执行操作'
+        required: true
+        default: 'check'
+        type: choice
+        options:
+          - check       # 仅检查状态
+          - retry-failed # 重试失败任务
+          - clean-stale  # 清理超时任务
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - name: Monitor and Recover
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const action = '${{ github.event.inputs.action }}' || 'check';
+            const now = new Date();
+
+            console.log("=".repeat(60));
+            console.log("🔍 VIBE MONITOR - 任务监控");
+            console.log("=".repeat(60));
+            console.log(`时间: ${now.toISOString()}`);
+            console.log(`操作: ${action}`);
+
+            // 获取所有打开的 Issue
+            const { data: allIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100
+            });
+
+            // 分类统计
+            const stats = {
+              processing: [],
+              failed: [],
+              stale: [],
+              pending: [],
+              completed: 0
+            };
+
+            // 阈值配置
+            const STALE_HOURS = 4;  // 超过4小时未更新视为超时
+            const RETRY_LIMIT = 3; // 最大重试次数
+
+            for (const issue of allIssues) {
+              const labels = issue.labels.map(l => l.name);
+              const updatedAt = new Date(issue.updated_at);
+              const hoursSinceUpdate = (now - updatedAt) / (1000 * 60 * 60);
+
+              if (labels.includes('🤖 ai-processing')) {
+                if (hoursSinceUpdate > STALE_HOURS) {
+                  stats.stale.push({ issue, hoursSinceUpdate });
+                } else {
+                  stats.processing.push({ issue, hoursSinceUpdate });
+                }
+              } else if (labels.includes('❌ ai-failed')) {
+                // 检查重试次数
+                const retryMatch = issue.body?.match(/Retry count: (\d+)/);
+                const retryCount = retryMatch ? parseInt(retryMatch[1]) : 0;
+                stats.failed.push({ issue, retryCount });
+              } else if (labels.some(l => l.startsWith('complexity:'))) {
+                // 有复杂度标签但未处理
+                stats.pending.push({ issue });
+              }
+            }
+
+            console.log("\n📊 任务状态汇总:");
+            console.log(`  - 处理中: ${stats.processing.length}`);
+            console.log(`  - 已超时: ${stats.stale.length}`);
+            console.log(`  - 已失败: ${stats.failed.length}`);
+            console.log(`  - 待处理: ${stats.pending.length}`);
+
+            // 执行清理超时任务
+            if (action === 'clean-stale' || action === 'check') {
+              for (const { issue, hoursSinceUpdate } of stats.stale) {
+                console.log(`⚠️ 超时任务 #${issue.number}: ${issue.title} (${hoursSinceUpdate.toFixed(1)}h)`);
+
+                if (action === 'clean-stale') {
+                  // 移除 processing 标签
+                  try {
+                    await github.rest.issues.removeLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issue.number,
+                      name: '🤖 ai-processing'
+                    });
+                  } catch (e) {}
+
+                  await github.rest.issues.addLabels({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    labels: ['⚠️ stale', 'needs-review']
+                  });
+
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    body: [
+                      "⚠️ **任务超时**",
+                      "",
+                      `此任务已超过 ${STALE_HOURS} 小时未更新，已自动标记为超时。`,
+                      "",
+                      "**可能的原因:**",
+                      "- Workflow 执行时间过长",
+                      "- API 调用失败",
+                      "- Workflow 被取消",
+                      "",
+                      "**解决方案:**",
+                      "- 查看 Actions 日志确认状态",
+                      "- 使用对应的 `/agent-*` 命令重试",
+                      "",
+                      "---",
+                      "> 🔍 由 Vibe Monitor 自动检测"
+                    ].join("\n")
+                  });
+                }
+              }
+            }
+
+            // 执行重试失败任务
+            if (action === 'retry-failed') {
+              for (const { issue, retryCount } of stats.failed) {
+                if (retryCount >= RETRY_LIMIT) {
+                  console.log(`⏭️ 跳过 #${issue.number}: 已达重试上限 (${retryCount}/${RETRY_LIMIT})`);
+                  continue;
+                }
+
+                console.log(`🔄 重试 #${issue.number}: ${issue.title}`);
+
+                // 确定任务复杂度
+                const labels = issue.labels.map(l => l.name);
+                let agentCommand = '/agent-medium';  // 默认中等
+
+                if (labels.includes('complexity:simple') || labels.includes('agent:simple')) {
+                  agentCommand = '/agent-simple';
+                } else if (labels.includes('complexity:complex') || labels.includes('agent:complex')) {
+                  agentCommand = '/agent-complex';
+                }
+
+                // 移除失败标签
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    name: '❌ ai-failed'
+                  });
+                } catch (e) {}
+
+                // 添加重试评论
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: [
+                    `${agentCommand}`,
+                    "",
+                    "---",
+                    "",
+                    `🔄 **自动重试** (${retryCount + 1}/${RETRY_LIMIT})`,
+                    "",
+                    "> 由 Vibe Monitor 自动触发重试"
+                  ].join("\n")
+                });
+
+                // 更新 issue body 中的重试计数
+                const newBody = issue.body?.includes('Retry count:')
+                  ? issue.body.replace(/Retry count: \d+/, `Retry count: ${retryCount + 1}`)
+                  : `${issue.body || ''}\n\n---\nRetry count: ${retryCount + 1}`;
+
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: newBody
+                });
+              }
+            }
+
+            // 生成报告
+            if (stats.stale.length > 0 || stats.failed.length > 0) {
+              console.log("\n📋 需要关注的任务:");
+              for (const { issue } of stats.stale) {
+                console.log(`  ⚠️ #${issue.number}: ${issue.title} (超时)`);
+              }
+              for (const { issue, retryCount } of stats.failed) {
+                console.log(`  ❌ #${issue.number}: ${issue.title} (失败, 重试${retryCount}次)`);
+              }
+            } else {
+              console.log("\n✅ 所有任务状态正常");
+            }
+
+      - name: Create Daily Summary (每日8点)
+        if: github.event.schedule == '0 0 * * *'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // 获取过去24小时的统计
+            const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+            const { data: closedIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              since: yesterday.toISOString(),
+              per_page: 100
+            });
+
+            const aiCompleted = closedIssues.filter(i =>
+              i.labels.some(l => l.name === '✅ ai-completed')
+            );
+
+            if (aiCompleted.length > 0) {
+              console.log(`📊 过去24小时 AI 完成了 ${aiCompleted.length} 个任务`);
+            }

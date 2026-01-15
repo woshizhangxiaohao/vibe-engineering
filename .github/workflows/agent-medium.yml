@@ -1,0 +1,211 @@
+name: Medium Task Agent
+
+on:
+  workflow_call:
+  issue_comment:
+    types: [created]
+
+jobs:
+  medium-task:
+    # 通过 workflow_call 或 /agent-medium 命令触发
+    if: |
+      github.event_name == 'workflow_call' ||
+      contains(github.event.comment.body, '/agent-medium')
+    runs-on: ubuntu-latest
+
+    permissions:
+      issues: write
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config user.name "vibe-medium-agent"
+          git config user.email "agent@vibe.bot"
+
+      - name: Update Issue Status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            // 更新标签
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                name: 'complexity:medium'
+              });
+            } catch (e) {}
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ['🤖 ai-processing', 'agent:medium']
+            });
+
+            // 发布开始分析的评论
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: [
+                "🔧 **Medium Agent 启动**",
+                "",
+                "**阶段 1/2**: 分析需求并制定开发计划...",
+                "",
+                "> 💡 中等任务会先分析再开发，确保方案合理。"
+              ].join("\n")
+            });
+
+      - name: Run Claude Code Action
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+        with:
+          anthropic_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          github_token: ${{ github.token }}
+          track_progress: true
+          prompt: |
+            ## 任务类型
+            这是一个 **中等复杂度任务**，需要先分析再实现。
+
+            ## Issue 信息
+            - 仓库: ${{ github.repository }}
+            - Issue: #${{ github.event.issue.number }}
+            - 标题: ${{ github.event.issue.title }}
+
+            ## 需求描述
+            ${{ github.event.issue.body }}
+
+            ## 执行流程
+
+            ### 阶段 1: 需求分析
+            1. 阅读并理解需求
+            2. 分析影响范围（涉及哪些文件/模块）
+            3. 评估技术方案
+            4. 识别可能的风险点
+
+            ### 阶段 2: 开发实现
+            1. 遵循项目代码风格（参考 CLAUDE.md 和 STYLE_GUIDE.md）
+            2. 按模块逐步实现
+            3. 确保代码质量
+            4. 完成后创建 PR
+
+            ## 项目结构
+            - 前端: frontend/ (Next.js + TypeScript + shadcn/ui)
+            - 后端: backend/ (Go + Gin)
+            - 类型定义: frontend/lib/api/types.ts
+            - API 客户端: frontend/lib/api/client.ts
+
+            ## 质量要求
+            - 代码清晰易懂
+            - 遵循现有的设计模式
+            - 处理边界情况
+            - 添加必要的错误处理
+
+            ## 注意事项
+            - 如果需求不明确，在评论中提出问题
+            - 复杂逻辑要添加注释
+            - 确保与现有代码风格一致
+
+          claude_args: |
+            --model anthropic/claude-sonnet-4
+            --max-turns 50
+
+      - name: Update Issue on Success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            // 移除 processing 标签，添加 completed 标签
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                name: '🤖 ai-processing'
+              });
+            } catch (e) {}
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ['✅ ai-completed']
+            });
+
+            // 发布成功评论
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: [
+                "✅ **Medium Agent 完成**",
+                "",
+                "需求分析和代码实现已完成，PR 已创建。",
+                "",
+                "请查看上方的进度追踪评论获取 PR 链接。",
+                "",
+                "---",
+                "> 🤖 由 Vibe Medium Agent 自动处理"
+              ].join("\n")
+            });
+
+      - name: Update Issue on Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                name: '🤖 ai-processing'
+              });
+            } catch (e) {}
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ['❌ ai-failed', 'needs-review']
+            });
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: [
+                "❌ **Medium Agent 失败**",
+                "",
+                "请查看 [Actions 日志](/${{ github.repository }}/actions/runs/${{ github.run_id }}) 了解详情。",
+                "",
+                "**可能的原因:**",
+                "- 需求描述不够清晰",
+                "- 涉及的模块过多",
+                "- 技术方案需要人工确认",
+                "",
+                "**解决方案:**",
+                "- 补充需求描述后使用 `/agent-medium` 重试",
+                "- 或将任务拆分为多个简单任务",
+                "- 或使用 `/agent-complex` 让 AI 先拆分任务",
+                "",
+                "---",
+                "> 🤖 由 Vibe Medium Agent 处理"
+              ].join("\n")
+            });

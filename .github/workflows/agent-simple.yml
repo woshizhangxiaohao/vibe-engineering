@@ -1,0 +1,182 @@
+name: Simple Task Agent
+
+on:
+  workflow_call:
+  issue_comment:
+    types: [created]
+
+jobs:
+  simple-task:
+    # 通过 workflow_call 或 /agent-simple 命令触发
+    if: |
+      github.event_name == 'workflow_call' ||
+      contains(github.event.comment.body, '/agent-simple')
+    runs-on: ubuntu-latest
+
+    permissions:
+      issues: write
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config user.name "vibe-simple-agent"
+          git config user.email "agent@vibe.bot"
+
+      - name: Update Issue Status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            // 更新标签
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                name: 'complexity:simple'
+              });
+            } catch (e) {}
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ['🤖 ai-processing', 'agent:simple']
+            });
+
+      - name: Run Claude Code Action
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+        with:
+          anthropic_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          github_token: ${{ github.token }}
+          track_progress: true
+          prompt: |
+            ## 任务类型
+            这是一个 **简单任务**，请直接实现，不需要复杂分析。
+
+            ## Issue 信息
+            - 仓库: ${{ github.repository }}
+            - Issue: #${{ github.event.issue.number }}
+            - 标题: ${{ github.event.issue.title }}
+
+            ## 需求描述
+            ${{ github.event.issue.body }}
+
+            ## 执行要求
+            1. **直接开始编码**，不需要先分析或规划
+            2. 遵循项目现有代码风格（参考 CLAUDE.md 和 STYLE_GUIDE.md）
+            3. 修改尽量最小化，只做必要的改动
+            4. 如果涉及前端，使用 shadcn/ui 组件
+            5. 如果涉及后端，遵循现有的 handler/service/repository 模式
+            6. 完成后创建 PR
+
+            ## 项目结构提示
+            - 前端: frontend/ (Next.js + TypeScript + shadcn/ui)
+            - 后端: backend/ (Go + Gin)
+            - 类型定义: frontend/lib/api/types.ts
+            - API 客户端: frontend/lib/api/client.ts
+
+            ## 注意事项
+            - 不要过度设计
+            - 不要添加不必要的功能
+            - 如果需求不明确，做最简单的实现
+
+          claude_args: |
+            --model anthropic/claude-sonnet-4
+            --max-turns 30
+
+      - name: Update Issue on Success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            // 移除 processing 标签，添加 completed 标签
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                name: '🤖 ai-processing'
+              });
+            } catch (e) {}
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ['✅ ai-completed']
+            });
+
+            // 发布成功评论
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: [
+                "✅ **Simple Agent 完成**",
+                "",
+                "PR 已创建，请查看上方的进度追踪评论获取链接。",
+                "",
+                "---",
+                "> 🤖 由 Vibe Simple Agent 自动处理"
+              ].join("\n")
+            });
+
+      - name: Update Issue on Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                name: '🤖 ai-processing'
+              });
+            } catch (e) {}
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ['❌ ai-failed', 'needs-review']
+            });
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: [
+                "❌ **Simple Agent 失败**",
+                "",
+                "请查看 [Actions 日志](/${{ github.repository }}/actions/runs/${{ github.run_id }}) 了解详情。",
+                "",
+                "**可能的原因:**",
+                "- 需求描述不够清晰",
+                "- 代码生成遇到问题",
+                "- API 调用超时",
+                "",
+                "**解决方案:**",
+                "- 补充需求描述后使用 `/agent-simple` 重试",
+                "- 或使用 `/agent-medium` 让 AI 先分析再开发",
+                "",
+                "---",
+                "> 🤖 由 Vibe Simple Agent 处理"
+              ].join("\n")
+            });
