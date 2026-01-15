@@ -262,7 +262,7 @@ jobs:
           prompt: ${{ steps.prepare.outputs.prompt_content }}
           claude_args: |
             --model anthropic/claude-sonnet-4.5
-            --max-turns 20
+            --max-turns 60
 
       # ========== 步骤 3：成功后更新标签 ==========
       - name: Update Labels on Success
