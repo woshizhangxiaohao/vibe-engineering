@@ -84,7 +84,8 @@ export interface TranscriptItem {
 }
 
 export interface AnalysisResult {
-  status: "pending" | "processing" | "completed" | "failed";
+  analysisId?: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
   summary?: string;
   keyPoints?: string[];
   chapters?: Chapter[];

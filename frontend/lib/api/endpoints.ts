@@ -9,6 +9,7 @@ import {
   QuotaStatus,
   CaptionsResponse,
 } from "@/types/video";
+import { ChatHistoryResponse, EntityAnalysisResult } from "@/types/chat";
 
 export const videoApi = {
   getMetadata: (url: string) =>
@@ -172,4 +173,15 @@ export const insightApi = {
     apiClient.delete<{ message: string }>(
       `/v1/insights/${insightId}/highlights/${highlightId}`
     ),
+};
+
+/**
+ * Chat API endpoints
+ */
+export const chatApi = {
+  getHistory: (analysisId: number) =>
+    apiClient.get<ChatHistoryResponse>(`/v1/insights/${analysisId}/chat`),
+
+  analyzeEntities: (analysisId: number) =>
+    apiClient.post<EntityAnalysisResult>(`/v1/insights/${analysisId}/analyze-entities`),
 };

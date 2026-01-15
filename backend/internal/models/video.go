@@ -135,6 +135,7 @@ type TranscriptionResponse struct {
 
 // AnalysisResultResponse represents the complete analysis result.
 type AnalysisResultResponse struct {
+	AnalysisID    uint                     `json:"analysisId,omitempty"`
 	Status        string                   `json:"status"`
 	Summary       string                   `json:"summary,omitempty"`
 	KeyPoints     []string                 `json:"keyPoints,omitempty"`

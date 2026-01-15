@@ -30,7 +30,7 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 
 	// Initialize health handler first (always available)
 	healthHandler := handlers.NewHealthHandler(db, cache)
-	
+
 	// Health check routes (no auth required) - always available
 	r.GET("/health", healthHandler.Health)
 	r.GET("/ready", healthHandler.Ready)
@@ -65,6 +65,11 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 	// Transcript service (yt-dlp based subtitle extraction)
 	transcriptService := services.NewTranscriptService(log)
 	transcriptHandler := handlers.NewTranscriptHandler(transcriptService, log)
+
+	// Chat handlers
+	chatRepo := repository.NewChatRepository(db.DB)
+	chatService := services.NewChatService(chatRepo, videoRepo, cfg.OpenRouterAPIKey, cfg.GeminiModel, log)
+	chatHandler := handlers.NewChatHandler(chatService, log)
 
 	// API routes
 	api := r.Group("/api")
@@ -138,10 +143,13 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 				insights.PATCH("/:id/highlights/:highlightId", insightHandler.UpdateHighlight)
 				insights.DELETE("/:id/highlights/:highlightId", insightHandler.DeleteHighlight)
 
-				// Chat routes
+				// Chat routes (InsightHandler)
 				insights.GET("/:id/chat", insightHandler.ListChatMessages)
 				insights.POST("/:id/chat", insightHandler.CreateChatMessage)
 				insights.DELETE("/:id/chat", insightHandler.ClearChatHistory)
+
+				// Entity analysis route (ChatHandler)
+				insights.POST("/:id/analyze-entities", chatHandler.AnalyzeEntities)
 			}
 
 			// Shared insight (public access)

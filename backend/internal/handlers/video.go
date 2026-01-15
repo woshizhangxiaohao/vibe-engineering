@@ -456,6 +456,7 @@ func (h *VideoHandler) GetResult(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.AnalysisResultResponse{
+		AnalysisID:    analysis.ID,
 		Status:        "completed",
 		Summary:       "",
 		KeyPoints:     []string{},

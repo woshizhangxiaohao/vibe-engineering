@@ -4,12 +4,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
-import { ChevronLeft, Download, Loader2, Share2, Play, FileText, MessageSquare } from "lucide-react";
+import { ChevronLeft, Download, Loader2, Share2, Play, FileText, MessageSquare, Sparkles } from "lucide-react";
 import { VideoMetadata, AnalysisResult } from "@/types/video";
 import { videoApi } from "@/lib/api/endpoints";
 import { toast } from "@/lib/utils/toast";
 import SummaryPanel from "./SummaryPanel";
 import TranscriptionPanel from "./TranscriptionPanel";
+import ChatConsole from "./ChatConsole";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 interface VideoDetailViewProps {
@@ -191,20 +192,27 @@ export default function VideoDetailView({ metadata, jobId, onBack }: VideoDetail
                 <Tabs defaultValue="summary" className="h-full flex flex-col">
                   {/* Tab Header */}
                   <div className="p-4 border-b border-border/50">
-                    <TabsList className="grid w-full grid-cols-2 rounded-lg p-1 bg-muted h-11">
-                      <TabsTrigger 
-                        value="summary" 
+                    <TabsList className="grid w-full grid-cols-3 rounded-lg p-1 bg-muted h-11">
+                      <TabsTrigger
+                        value="summary"
                         className="rounded data-[state=active]:bg-background font-medium"
                       >
                         <Play className="h-4 w-4 mr-2" />
                         Summary
                       </TabsTrigger>
-                      <TabsTrigger 
-                        value="transcription" 
+                      <TabsTrigger
+                        value="transcription"
                         className="rounded data-[state=active]:bg-background font-medium"
                       >
                         <FileText className="h-4 w-4 mr-2" />
                         Transcript
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="chat"
+                        className="rounded data-[state=active]:bg-background font-medium"
+                      >
+                        <Sparkles className="h-4 w-4 mr-2" />
+                        Chat
                       </TabsTrigger>
                     </TabsList>
                   </div>
@@ -253,11 +261,19 @@ export default function VideoDetailView({ metadata, jobId, onBack }: VideoDetail
                           <SummaryPanel result={result} onSeek={handleSeek} />
                         </TabsContent>
                         <TabsContent value="transcription" className="h-full mt-0 overflow-hidden">
-                          <TranscriptionPanel 
-                            result={result} 
-                            currentTime={currentTime} 
-                            onSeek={handleSeek} 
+                          <TranscriptionPanel
+                            result={result}
+                            currentTime={currentTime}
+                            onSeek={handleSeek}
                           />
+                        </TabsContent>
+                        <TabsContent value="chat" className="h-full mt-0 overflow-hidden">
+                          {result.analysisId && (
+                            <ChatConsole
+                              analysisId={result.analysisId}
+                              className="h-full rounded-none"
+                            />
+                          )}
                         </TabsContent>
                       </>
                     )}
