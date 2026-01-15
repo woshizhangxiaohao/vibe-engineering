@@ -27,6 +27,9 @@ function buildQueryString(
  * 检查 Google OAuth token 是否过期
  */
 function isGoogleTokenExpired(): boolean {
+  // 检查是否在浏览器环境中
+  if (typeof window === "undefined") return false;
+  
   const expiry = localStorage.getItem("google_token_expiry");
   if (!expiry) return false;
 
@@ -46,6 +49,9 @@ function isGoogleTokenExpired(): boolean {
  * @returns 是否成功刷新 token，如果没有 refresh token 则返回 false
  */
 async function refreshGoogleToken(): Promise<boolean> {
+  // 检查是否在浏览器环境中
+  if (typeof window === "undefined") return false;
+  
   const refreshToken = localStorage.getItem("google_refresh_token");
   if (!refreshToken) {
     // 没有 refresh token，静默返回 false，不抛出错误
@@ -94,7 +100,11 @@ function buildHeaders(customHeaders?: Record<string, string>): HeadersInit {
   });
 
   // 优先使用 Google OAuth token，如果不存在则使用通用 auth token
-  const googleAccessToken = localStorage.getItem("google_access_token");
+  // 只在浏览器环境中访问 localStorage
+  const googleAccessToken =
+    typeof window !== "undefined"
+      ? localStorage.getItem("google_access_token")
+      : null;
   const token = googleAccessToken || getAuthToken();
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
@@ -197,7 +207,9 @@ class ApiClient {
     } = options;
 
     // 检查并刷新 Google OAuth token（如果需要且不是刷新 token 请求本身）
+    // 只在浏览器环境中执行 token 刷新
     if (
+      typeof window !== "undefined" &&
       endpoint !== "/v1/auth/google/refresh" &&
       localStorage.getItem("google_access_token") &&
       isGoogleTokenExpired()

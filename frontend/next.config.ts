@@ -20,9 +20,10 @@ const nextConfig: NextConfig = {
       '@radix-ui/react-tooltip',
     ],
   },
-  // 开发时跳过类型检查以加快速度
+  // 类型检查配置
   typescript: {
-    ignoreBuildErrors: process.env.NODE_ENV === 'development',
+    // 生产构建时进行类型检查，开发时跳过以加快速度
+    ignoreBuildErrors: false,
   },
 };
 

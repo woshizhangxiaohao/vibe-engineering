@@ -161,6 +161,7 @@ export function removeGoogleOAuthToken(): void {
  * 检查 Google OAuth token 是否已过期
  */
 export function isGoogleTokenExpired(): boolean {
+  if (typeof window === "undefined") return true;
   const expiry = localStorage.getItem('google_token_expiry');
   if (!expiry) return true;
   return new Date(expiry) < new Date();
