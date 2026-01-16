@@ -1,0 +1,78 @@
+name: 'Load Prompt Template'
+description: '从文件加载 prompt 模板并渲染变量'
+
+inputs:
+  template:
+    description: '模板文件路径（相对于 .github/prompts/）'
+    required: true
+  variables:
+    description: 'JSON 格式的变量映射，用于替换模板中的 {{variable}} 占位符'
+    required: false
+    default: '{}'
+
+outputs:
+  prompt:
+    description: '渲染后的 prompt 内容'
+    value: ${{ steps.render.outputs.prompt }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Render Prompt Template
+      id: render
+      shell: bash
+      env:
+        TEMPLATE_PATH: ${{ inputs.template }}
+        VARIABLES_JSON: ${{ inputs.variables }}
+      run: |
+        FULL_PATH=".github/prompts/${TEMPLATE_PATH}"
+
+        if [ ! -f "$FULL_PATH" ]; then
+          echo "❌ 模板文件不存在: $FULL_PATH"
+          exit 1
+        fi
+
+        echo "📄 加载模板: $FULL_PATH"
+
+        # 读取模板内容
+        CONTENT=$(cat "$FULL_PATH")
+
+        # 使用 Node.js 渲染变量（更可靠地处理多行内容和特殊字符）
+        node << 'NODEJS_SCRIPT'
+        const fs = require('fs');
+
+        const templatePath = process.env.FULL_PATH || '.github/prompts/' + process.env.TEMPLATE_PATH;
+        const variablesJson = process.env.VARIABLES_JSON || '{}';
+
+        let content = fs.readFileSync(templatePath, 'utf8');
+        let variables = {};
+
+        try {
+          variables = JSON.parse(variablesJson);
+        } catch (e) {
+          console.error('⚠️ 无法解析变量 JSON:', e.message);
+        }
+
+        // 替换 {{variable}} 格式的占位符
+        for (const [key, value] of Object.entries(variables)) {
+          const placeholder = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g');
+          content = content.replace(placeholder, String(value));
+        }
+
+        // 检查是否还有未替换的占位符
+        const unreplaced = content.match(/\{\{\s*\w+\s*\}\}/g);
+        if (unreplaced) {
+          console.warn('⚠️ 存在未替换的占位符:', [...new Set(unreplaced)].join(', '));
+        }
+
+        // 写入 GitHub 输出（处理多行内容）
+        const outputFile = process.env.GITHUB_OUTPUT;
+        if (outputFile) {
+          const delimiter = 'EOF_' + Math.random().toString(36).substring(7);
+          fs.appendFileSync(outputFile, `prompt<<${delimiter}\n${content}\n${delimiter}\n`);
+        }
+
+        console.log('✅ Prompt 渲染完成');
+        console.log('📊 变量数量:', Object.keys(variables).length);
+        console.log('📏 内容长度:', content.length, '字符');
+        NODEJS_SCRIPT
