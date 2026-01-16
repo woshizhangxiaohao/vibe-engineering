@@ -12,38 +12,92 @@
 
 {{body}}
 
+## ⚠️ 重要：你必须完成实际的代码修改
+
+你的任务是 **实际编写代码并创建 PR**，而不仅仅是分析。如果你只做分析而没有写代码，任务就是失败的。
+
 ## 执行流程
 
-### 阶段 1: 需求分析
+### 阶段 1: 需求分析（简短）
 
-1. 阅读并理解需求
-2. 分析影响范围（涉及哪些文件/模块）
-3. 评估技术方案
-4. 识别可能的风险点
+1. 快速阅读需求，理解要做什么
+2. 找到需要修改的文件位置
+3. 如果需求完全不清晰无法开始，在 Issue 评论中提问然后停止
 
-### 阶段 2: 开发实现
+### 阶段 2: 创建分支
 
-1. 遵循项目代码风格（参考 CLAUDE.md 和 STYLE_GUIDE.md）
-2. 按模块逐步实现
-3. 确保代码质量
-4. 完成后创建 PR
+**必须先创建新分支再开始编码：**
+
+```bash
+git checkout -b claude/issue-{{issue_number}}-$(date +%Y%m%d-%H%M)
+```
+
+### 阶段 3: 编写代码
+
+1. **直接开始写代码**，不要过度分析
+2. 按照验收标准逐一实现功能
+3. 参考项目中现有的类似代码风格
+4. 对于数据库任务：
+   - 查找现有的 model 文件位置（如 `backend/internal/model/`）
+   - 查找现有的 migration 文件位置
+   - 按照现有模式添加新字段和迁移
+5. 对于 API 任务：
+   - 参考现有的 handler/service/repository 模式
+6. 对于前端任务：
+   - 使用 shadcn/ui 组件
+   - 参考现有页面结构
+
+### 阶段 4: 提交代码
+
+```bash
+git add .
+git commit -m "feat(issue-{{issue_number}}): 简短描述
+
+详细说明做了什么修改
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+### 阶段 5: 推送并创建 PR
+
+```bash
+git push -u origin HEAD
+gh pr create --title "feat: {{title}}" --body "## Summary
+- 完成了 Issue #{{issue_number}} 的需求
+
+## Changes
+- 列出主要修改
+
+## Test Plan
+- 说明如何测试
+
+Closes #{{issue_number}}"
+```
 
 ## 项目结构
 
-- 前端: frontend/ (Next.js + TypeScript + shadcn/ui)
-- 后端: backend/ (Go + Gin)
-- 类型定义: frontend/lib/api/types.ts
-- API 客户端: frontend/lib/api/client.ts
+- 前端: `frontend/` (Next.js + TypeScript + shadcn/ui)
+- 后端: `backend/` (Go + Gin + GORM)
+- 后端模型: `backend/internal/model/`
+- 后端 Handler: `backend/internal/handler/`
+- 后端 Service: `backend/internal/service/`
+- 类型定义: `frontend/lib/api/types.ts`
+- API 客户端: `frontend/lib/api/client.ts`
 
 ## 质量要求
 
 - 代码清晰易懂
-- 遵循现有的设计模式
+- 遵循现有的设计模式和命名规范
 - 处理边界情况
 - 添加必要的错误处理
 
-## 注意事项
+## 成功标准
 
-- 如果需求不明确，在评论中提出问题
-- 复杂逻辑要添加注释
-- 确保与现有代码风格一致
+任务成功的标志是：
+1. ✅ 创建了新分支
+2. ✅ 编写了实现需求的代码
+3. ✅ 代码已提交
+4. ✅ 已推送到远程
+5. ✅ 已创建 PR
+
+**如果没有创建 PR，任务就是失败的。**
