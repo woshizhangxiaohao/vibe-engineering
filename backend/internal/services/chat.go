@@ -19,6 +19,7 @@ import (
 type ChatService struct {
 	chatRepo         *repository.ChatRepository
 	videoRepo        *repository.VideoRepository
+	insightRepo      *repository.InsightRepository
 	openRouterAPIKey string
 	chatModel        string
 	httpClient       *http.Client
@@ -29,6 +30,7 @@ type ChatService struct {
 func NewChatService(
 	chatRepo *repository.ChatRepository,
 	videoRepo *repository.VideoRepository,
+	insightRepo *repository.InsightRepository,
 	apiKey string,
 	chatModel string,
 	log *zap.Logger,
@@ -40,6 +42,7 @@ func NewChatService(
 	return &ChatService{
 		chatRepo:         chatRepo,
 		videoRepo:        videoRepo,
+		insightRepo:      insightRepo,
 		openRouterAPIKey: apiKey,
 		chatModel:        chatModel,
 		httpClient: &http.Client{
@@ -50,15 +53,15 @@ func NewChatService(
 }
 
 // ChatStream sends a message and returns a channel for streaming responses.
-func (s *ChatService) ChatStream(ctx context.Context, analysisID uint, message string, highlightID *uint) (<-chan models.ChatStreamEvent, error) {
-	// Get the analysis for context
-	analysis, err := s.videoRepo.GetAnalysisByID(ctx, analysisID)
+func (s *ChatService) ChatStream(ctx context.Context, insightID uint, message string, highlightID *uint) (<-chan models.ChatStreamEvent, error) {
+	// Get the insight for context
+	insight, err := s.insightRepo.GetByID(ctx, insightID)
 	if err != nil {
-		return nil, fmt.Errorf("analysis not found: %w", err)
+		return nil, fmt.Errorf("insight not found: %w", err)
 	}
 
 	// Get existing chat history
-	history, err := s.chatRepo.GetMessagesByAnalysisID(ctx, analysisID)
+	history, err := s.chatRepo.GetMessagesByAnalysisID(ctx, insightID)
 	if err != nil {
 		s.log.Warn("Failed to get chat history", zap.Error(err))
 		history = []models.ChatMessage{}
@@ -66,7 +69,7 @@ func (s *ChatService) ChatStream(ctx context.Context, analysisID uint, message s
 
 	// Save user message
 	userMessage := &models.ChatMessage{
-		InsightID:   analysisID,
+		InsightID:   insightID,
 		UserID:      0, // TODO: Get from context/auth
 		Role:        "user",
 		Content:     message,
@@ -77,7 +80,7 @@ func (s *ChatService) ChatStream(ctx context.Context, analysisID uint, message s
 	}
 
 	// Build system prompt with context
-	systemPrompt := s.buildSystemPrompt(analysis)
+	systemPrompt := s.buildSystemPrompt(insight)
 
 	// Build messages array
 	messages := s.buildMessages(systemPrompt, history, message)
@@ -88,7 +91,7 @@ func (s *ChatService) ChatStream(ctx context.Context, analysisID uint, message s
 	// Start streaming in goroutine
 	go func() {
 		defer close(responseChan)
-		s.streamFromOpenRouter(ctx, messages, analysisID, responseChan)
+		s.streamFromOpenRouter(ctx, messages, insightID, responseChan)
 	}()
 
 	return responseChan, nil
@@ -118,10 +121,10 @@ func (s *ChatService) GetChatHistory(ctx context.Context, analysisID uint) (*mod
 }
 
 // AnalyzeEntities analyzes the content and returns detected entities and suggestions.
-func (s *ChatService) AnalyzeEntities(ctx context.Context, analysisID uint) (*models.AnalyzeEntitiesResponse, error) {
-	analysis, err := s.videoRepo.GetAnalysisByID(ctx, analysisID)
+func (s *ChatService) AnalyzeEntities(ctx context.Context, insightID uint) (*models.AnalyzeEntitiesResponse, error) {
+	insight, err := s.insightRepo.GetByID(ctx, insightID)
 	if err != nil {
-		return nil, fmt.Errorf("analysis not found: %w", err)
+		return nil, fmt.Errorf("insight not found: %w", err)
 	}
 
 	// Build prompt for entity extraction
@@ -141,34 +144,34 @@ func (s *ChatService) AnalyzeEntities(ctx context.Context, analysisID uint) (*mo
   ]
 }
 
-只返回JSON，不要其他文字。`, analysis.Title, analysis.Author, analysis.Summary)
+只返回JSON，不要其他文字。`, insight.Title, insight.Author, insight.Summary)
 
 	response, err := s.callOpenRouter(ctx, prompt)
 	if err != nil {
-		s.log.Error("Failed to analyze entities", zap.Error(err))
-		// Return empty response on error
-		return &models.AnalyzeEntitiesResponse{
-			Entities:    []models.Entity{},
-			Suggestions: []models.Suggestion{},
-		}, nil
+		s.log.Error("Failed to analyze entities",
+			zap.Uint("insight_id", insightID),
+			zap.Error(err),
+		)
+		return nil, fmt.Errorf("failed to call AI service: %w", err)
 	}
 
 	// Parse response
 	var result models.AnalyzeEntitiesResponse
 	cleanedResponse := s.cleanJSONResponse(response)
 	if err := json.Unmarshal([]byte(cleanedResponse), &result); err != nil {
-		s.log.Error("Failed to parse entity response", zap.Error(err), zap.String("response", cleanedResponse))
-		return &models.AnalyzeEntitiesResponse{
-			Entities:    []models.Entity{},
-			Suggestions: []models.Suggestion{},
-		}, nil
+		s.log.Error("Failed to parse entity response",
+			zap.Uint("insight_id", insightID),
+			zap.Error(err),
+			zap.String("response", cleanedResponse),
+		)
+		return nil, fmt.Errorf("failed to parse AI response: %w", err)
 	}
 
 	return &result, nil
 }
 
-// buildSystemPrompt creates the system prompt with analysis context.
-func (s *ChatService) buildSystemPrompt(analysis *models.VideoAnalysis) string {
+// buildSystemPrompt creates the system prompt with insight context.
+func (s *ChatService) buildSystemPrompt(insight *models.Insight) string {
 	return fmt.Sprintf(`你是一个智能阅读助手。用户正在阅读以下内容：
 
 标题: %s
@@ -179,7 +182,7 @@ func (s *ChatService) buildSystemPrompt(analysis *models.VideoAnalysis) string {
 1. 优先参考内容中的信息
 2. 如果内容中没有相关信息，可以结合你的知识回答，但需说明
 3. 保持回答简洁、有洞察力
-4. 支持 Markdown 格式`, analysis.Title, analysis.Author, analysis.Summary)
+4. 支持 Markdown 格式`, insight.Title, insight.Author, insight.Summary)
 }
 
 // buildMessages constructs the messages array for the API call.
@@ -214,7 +217,7 @@ func (s *ChatService) buildMessages(systemPrompt string, history []models.ChatMe
 }
 
 // streamFromOpenRouter handles the SSE streaming from OpenRouter.
-func (s *ChatService) streamFromOpenRouter(ctx context.Context, messages []map[string]string, analysisID uint, responseChan chan<- models.ChatStreamEvent) {
+func (s *ChatService) streamFromOpenRouter(ctx context.Context, messages []map[string]string, insightID uint, responseChan chan<- models.ChatStreamEvent) {
 	const openRouterURL = "https://openrouter.ai/api/v1/chat/completions"
 
 	requestBody := map[string]interface{}{
@@ -306,7 +309,7 @@ func (s *ChatService) streamFromOpenRouter(ctx context.Context, messages []map[s
 	// Save assistant message
 	if fullContent.Len() > 0 {
 		assistantMessage := &models.ChatMessage{
-			InsightID: analysisID,
+			InsightID: insightID,
 			UserID:    0, // TODO: Get from context/auth
 			Role:      "assistant",
 			Content:   fullContent.String(),

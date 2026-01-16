@@ -1,0 +1,153 @@
+name: Check API Error Handling
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'backend/**/*.go'
+      - '.github/workflows/check-api-error-handling.yml'
+      - 'scripts/check-api-error-handling.py'
+  workflow_dispatch:
+
+jobs:
+  check-api-errors:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Run API Error Handling Check
+        id: check
+        continue-on-error: true
+        run: |
+          python3 scripts/check-api-error-handling.py > check_results.txt 2>&1
+          exit_code=$?
+          echo "exit_code=$exit_code" >> $GITHUB_OUTPUT
+          
+          # 读取检查结果
+          if [ -f check_results.txt ]; then
+            echo "check_results<<EOF" >> $GITHUB_OUTPUT
+            cat check_results.txt >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Comment PR with Results
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const exitCode = ${{ steps.check.outputs.exit_code }};
+            const checkResults = `${{ steps.check.outputs.check_results }}`;
+            
+            // 查找是否已有评论
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('API 错误处理检查')
+            );
+            
+            let commentBody = '';
+            if (exitCode === 0 || exitCode === '0') {
+              commentBody = [
+                '## ✅ API 错误处理检查通过',
+                '',
+                '所有后端 API handler 的错误处理都符合规范：',
+                '',
+                '- ✅ 使用了标准化的 `models.ErrorResponse` 格式',
+                '- ✅ 正确处理了 `gorm.ErrRecordNotFound` 错误',
+                '- ✅ 错误日志包含了必要的字段（error_code, request_id）',
+                '- ✅ 404 错误返回了正确的错误码',
+                '',
+                '---',
+                '_由 API Error Handling Check 自动检查_'
+              ].join('\n');
+            } else {
+              commentBody = [
+                '## ❌ API 错误处理检查未通过',
+                '',
+                '发现以下问题需要修复：',
+                '',
+                '```',
+                checkResults,
+                '```',
+                '',
+                '### 修复指南',
+                '',
+                '1. **使用标准化错误响应**：',
+                '   ```go',
+                '   c.JSON(http.StatusNotFound, models.ErrorResponse{',
+                '       Code:      "ANALYSIS_NOT_FOUND",',
+                '       Message:   "Analysis record not found.",',
+                '       RequestID: requestID,',
+                '   })',
+                '   ```',
+                '',
+                '2. **正确处理数据库错误**：',
+                '   ```go',
+                '   if err != nil {',
+                '       if errors.Is(err, gorm.ErrRecordNotFound) {',
+                '           h.log.Error("Record not found",',
+                '               zap.String("error_code", "ANALYSIS_NOT_FOUND"),',
+                '               zap.Uint64("analysis_id", id),',
+                '               zap.String("request_id", requestID),',
+                '           )',
+                '           c.JSON(http.StatusNotFound, models.ErrorResponse{...})',
+                '           return',
+                '       }',
+                '   }',
+                '   ```',
+                '',
+                '3. **错误日志必须包含**：',
+                '   - `error_code`: 错误码（如 "ANALYSIS_NOT_FOUND"）',
+                '   - `request_id`: 请求 ID',
+                '   - 相关 ID（如 `analysis_id`, `insight_id`）',
+                '',
+                '请修复这些问题后重新提交 PR。',
+                '',
+                '---',
+                '_由 API Error Handling Check 自动检查_'
+              ].join('\n');
+            }
+            
+            if (botComment) {
+              // 更新现有评论
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: commentBody
+              });
+            } else {
+              // 创建新评论
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: commentBody
+              });
+            }
+      
+      - name: Fail if check failed
+        if: steps.check.outputs.exit_code != '0' && steps.check.outputs.exit_code != ''
+        run: |
+          echo "❌ API 错误处理检查失败"
+          echo "请查看 PR 评论了解详情"
+          exit 1

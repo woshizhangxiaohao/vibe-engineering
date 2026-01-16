@@ -72,7 +72,7 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 
 	// Chat handlers
 	chatRepo := repository.NewChatRepository(db.DB)
-	chatService := services.NewChatService(chatRepo, videoRepo, cfg.OpenRouterAPIKey, cfg.GeminiModel, log)
+	chatService := services.NewChatService(chatRepo, videoRepo, insightRepo, cfg.OpenRouterAPIKey, cfg.GeminiModel, log)
 	chatHandler := handlers.NewChatHandler(chatService, log)
 
 	// API routes

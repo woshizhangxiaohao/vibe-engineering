@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -27,13 +29,21 @@ func NewChatHandler(chatService *services.ChatService, log *zap.Logger) *ChatHan
 
 // Chat handles POST /api/v1/insights/:id/chat - streaming chat
 func (h *ChatHandler) Chat(c *gin.Context) {
-	// Parse analysis ID
+	requestID := c.GetString("request_id")
+	
+	// Parse insight ID
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":      "invalid analysis ID",
-			"request_id": c.GetString("request_id"),
+		h.log.Warn("Invalid insight ID format",
+			zap.String("insight_id", idStr),
+			zap.String("request_id", requestID),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Code:      "INVALID_ID",
+			Message:   "Invalid insight ID format.",
+			RequestID: requestID,
 		})
 		return
 	}
@@ -41,9 +51,14 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	// Parse request body
 	var req models.ChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":      err.Error(),
-			"request_id": c.GetString("request_id"),
+		h.log.Warn("Invalid request body",
+			zap.String("request_id", requestID),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Code:      "INVALID_REQUEST",
+			Message:   fmt.Sprintf("Invalid request format: %v", err),
+			RequestID: requestID,
 		})
 		return
 	}
@@ -51,10 +66,31 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	// Start streaming
 	stream, err := h.chatService.ChatStream(c.Request.Context(), uint(id), req.Message, req.HighlightID)
 	if err != nil {
-		h.log.Error("Failed to start chat stream", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":      err.Error(),
-			"request_id": c.GetString("request_id"),
+		// Check if it's a "not found" error
+		if strings.Contains(err.Error(), "not found") {
+			h.log.Error("Insight not found",
+				zap.String("error_code", "INSIGHT_NOT_FOUND"),
+				zap.Uint64("insight_id", id),
+				zap.String("request_id", requestID),
+			)
+			c.JSON(http.StatusNotFound, models.ErrorResponse{
+				Code:      "INSIGHT_NOT_FOUND",
+				Message:   "Insight not found.",
+				RequestID: requestID,
+			})
+			return
+		}
+
+		h.log.Error("Failed to start chat stream",
+			zap.String("error_code", "INTERNAL_SERVER_ERROR"),
+			zap.Uint64("insight_id", id),
+			zap.String("request_id", requestID),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Code:      "INTERNAL_SERVER_ERROR",
+			Message:   "Failed to start chat stream.",
+			RequestID: requestID,
 		})
 		return
 	}
@@ -79,23 +115,37 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 
 // GetHistory handles GET /api/v1/insights/:id/chat - get chat history
 func (h *ChatHandler) GetHistory(c *gin.Context) {
-	// Parse analysis ID
+	requestID := c.GetString("request_id")
+	
+	// Parse insight ID
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":      "invalid analysis ID",
-			"request_id": c.GetString("request_id"),
+		h.log.Warn("Invalid insight ID format",
+			zap.String("insight_id", idStr),
+			zap.String("request_id", requestID),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Code:      "INVALID_ID",
+			Message:   "Invalid insight ID format.",
+			RequestID: requestID,
 		})
 		return
 	}
 
 	history, err := h.chatService.GetChatHistory(c.Request.Context(), uint(id))
 	if err != nil {
-		h.log.Error("Failed to get chat history", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":      err.Error(),
-			"request_id": c.GetString("request_id"),
+		h.log.Error("Failed to get chat history",
+			zap.String("error_code", "INTERNAL_SERVER_ERROR"),
+			zap.Uint64("insight_id", id),
+			zap.String("request_id", requestID),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Code:      "INTERNAL_SERVER_ERROR",
+			Message:   "Failed to get chat history.",
+			RequestID: requestID,
 		})
 		return
 	}
@@ -105,23 +155,53 @@ func (h *ChatHandler) GetHistory(c *gin.Context) {
 
 // AnalyzeEntities handles POST /api/v1/insights/:id/analyze-entities
 func (h *ChatHandler) AnalyzeEntities(c *gin.Context) {
-	// Parse analysis ID
+	requestID := c.GetString("request_id")
+	
+	// Parse insight ID
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":      "invalid analysis ID",
-			"request_id": c.GetString("request_id"),
+		h.log.Warn("Invalid insight ID format",
+			zap.String("insight_id", idStr),
+			zap.String("request_id", requestID),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Code:      "INVALID_ID",
+			Message:   "Invalid insight ID format.",
+			RequestID: requestID,
 		})
 		return
 	}
 
 	result, err := h.chatService.AnalyzeEntities(c.Request.Context(), uint(id))
 	if err != nil {
-		h.log.Error("Failed to analyze entities", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":      err.Error(),
-			"request_id": c.GetString("request_id"),
+		// Check if it's a "not found" error
+		if strings.Contains(err.Error(), "not found") {
+			h.log.Error("Insight not found",
+				zap.String("error_code", "INSIGHT_NOT_FOUND"),
+				zap.Uint64("insight_id", id),
+				zap.String("request_id", requestID),
+			)
+			c.JSON(http.StatusNotFound, models.ErrorResponse{
+				Code:      "INSIGHT_NOT_FOUND",
+				Message:   "Insight not found.",
+				RequestID: requestID,
+			})
+			return
+		}
+
+		// Other errors (AI service, parsing, etc.)
+		h.log.Error("Failed to analyze entities",
+			zap.String("error_code", "INTERNAL_SERVER_ERROR"),
+			zap.Uint64("insight_id", id),
+			zap.String("request_id", requestID),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Code:      "INTERNAL_SERVER_ERROR",
+			Message:   "Failed to analyze entities.",
+			RequestID: requestID,
 		})
 		return
 	}

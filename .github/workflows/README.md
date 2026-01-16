@@ -236,6 +236,31 @@
 
 ---
 
+### 14. Check API Error Handling (`check-api-error-handling.yml`) ⭐ 新增
+
+**功能**: 自动检查后端 API 错误处理是否符合规范，在 PR 合并前进行验证。
+
+**触发条件**:
+- **仅当 PR 包含 `backend/**/*.go` 文件变更时**自动触发
+- 手动触发（workflow_dispatch）
+
+**注意**: 此工作流只检查后端代码，前端和其他代码变更不会触发此检查。
+
+**检查项**:
+1. ✅ 是否使用了标准化的 `models.ErrorResponse` 格式（而不是 `gin.H`）
+2. ✅ 是否正确处理了 `gorm.ErrRecordNotFound` 错误
+3. ✅ 错误日志是否包含了必要的字段（`error_code`, `request_id`）
+4. ✅ 404 错误是否返回了正确的错误码（如 `ANALYSIS_NOT_FOUND`, `INSIGHT_NOT_FOUND`）
+
+**输出**:
+- 在 PR 中自动评论检查结果
+- 如果有错误，PR 检查会失败，阻止合并
+
+**修复指南**:
+当检查失败时，PR 评论中会包含详细的修复指南和代码示例。
+
+---
+
 ## 使用指南
 
 ### 快速开始
@@ -556,6 +581,7 @@ docs/
 - **2025-12** (新增功能):
   - 新增 `parent-child-issue-guard.yml`：管理父子 Issue 关系
   - 新增 `update-prd-status.yml`：自动更新 PRD Issue 状态
+  - 新增 `check-api-error-handling.yml`：自动检查 API 错误处理规范
   - 实现 AI 对话面板 (Chat Console) 前端功能
 
 - **2024-2025**:
