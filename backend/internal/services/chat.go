@@ -167,6 +167,14 @@ func (s *ChatService) AnalyzeEntities(ctx context.Context, insightID uint) (*mod
 		return nil, fmt.Errorf("failed to parse AI response: %w", err)
 	}
 
+	// 确保 entities 和 suggestions 不为 nil（即使为空数组）
+	if result.Entities == nil {
+		result.Entities = []models.Entity{}
+	}
+	if result.Suggestions == nil {
+		result.Suggestions = []models.Suggestion{}
+	}
+
 	return &result, nil
 }
 

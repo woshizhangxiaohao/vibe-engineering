@@ -70,7 +70,11 @@ export function InsightCard({
     return null; // 静默失败，不显示卡片
   }
 
-  if (data.entities.length === 0 && data.suggestions.length === 0) {
+  // 安全检查：确保 entities 和 suggestions 存在且为数组
+  const entities = Array.isArray(data.entities) ? data.entities : [];
+  const suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+
+  if (entities.length === 0 && suggestions.length === 0) {
     return null; // 没有洞察，不显示卡片
   }
 
@@ -90,21 +94,21 @@ export function InsightCard({
 
       <CardContent className="p-4 pt-0 space-y-3">
         {/* 检测到的实体 */}
-        {data.entities.length > 0 && (
+        {entities.length > 0 && (
           <div>
             <div className="text-sm text-muted-foreground mb-2">
               检测到讨论：
               <span className="ml-1 font-medium text-foreground">
-                {data.entities.map((e) => e.name).join(", ")}
+                {entities.map((e) => e?.name || "").filter(Boolean).join(", ")}
               </span>
             </div>
           </div>
         )}
 
         {/* 建议列表 */}
-        {data.suggestions.length > 0 && (
+        {suggestions.length > 0 && (
           <div className="space-y-2">
-            {data.suggestions.map((suggestion, index) => (
+            {suggestions.map((suggestion, index) => (
               <Button
                 key={index}
                 variant="ghost"
