@@ -94,56 +94,91 @@ jobs:
               labels: ['🤖 ai-processing', 'agent:medium']
             });
 
-            // 发布开始分析的评论（带进度追踪）
             const continuationContext = '${{ github.event.inputs.continuation_context }}' || '';
-            const isContination = continuationContext.length > 0;
-            
-            // 创建进度追踪评论
-            const progressComment = await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber,
-              body: isContination ? [
-                "🔄 **Medium Agent 继续迭代**",
-                "",
-                "**上下文**: " + continuationContext,
-                "",
-                "---",
-                "",
-                "## 📊 执行进度",
-                "",
-                "**当前阶段**: 🔄 准备中...",
-                "",
-                "```",
-                "░░░░░░░░░░░░░░░░░░░░ 0%",
-                "```",
-                "",
-                "**状态**: ⏳ 正在初始化...",
-                "",
-                "---",
-                "> 🔧 基于之前的进度继续开发..."
-              ].join("\n") : [
-                "🔧 **Medium Agent 启动**",
-                "",
-                "---",
-                "",
-                "## 📊 执行进度",
-                "",
-                "**当前阶段**: 🔄 准备中...",
-                "",
-                "```",
-                "░░░░░░░░░░░░░░░░░░░░ 0%",
-                "```",
-                "",
-                "**状态**: ⏳ 正在初始化...",
-                "",
-                "---",
-                "> 💡 中等任务会先分析再开发，确保方案合理。"
-              ].join("\n")
-            });
-            
-            // 保存评论 ID 供后续更新
-            core.setOutput('progress_comment_id', progressComment.data.id);
+            const isContinuation = continuationContext.length > 0;
+
+            // 查找已有的进度追踪评论（vibe-continuous 创建的）
+            let progressCommentId = null;
+            let existingCommentBody = '';
+
+            if (isContinuation) {
+              // 获取 issue 的所有评论
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                per_page: 100
+              });
+
+              // 查找最近的 vibe-continuous 进度评论（包含 "🔄 自动迭代"）
+              for (let i = comments.length - 1; i >= 0; i--) {
+                const comment = comments[i];
+                if (comment.body && comment.body.includes('🔄 自动迭代')) {
+                  progressCommentId = comment.id;
+                  existingCommentBody = comment.body;
+                  console.log(`找到进度追踪评论: #${progressCommentId}`);
+                  break;
+                }
+              }
+            }
+
+            // 构建进度评论内容
+            const progressBody = isContinuation ? [
+              existingCommentBody || `🔄 **自动迭代**\n\n**上下文**: ${continuationContext}`,
+              "",
+              "---",
+              "",
+              "## 🤖 Medium Agent 执行中",
+              "",
+              "**当前阶段**: 🔄 准备中...",
+              "",
+              "```",
+              "░░░░░░░░░░░░░░░░░░░░ 0%",
+              "```",
+              "",
+              "**状态**: ⏳ 正在初始化...",
+            ].join("\n") : [
+              "🔧 **Medium Agent 启动**",
+              "",
+              "---",
+              "",
+              "## 📊 执行进度",
+              "",
+              "**当前阶段**: 🔄 准备中...",
+              "",
+              "```",
+              "░░░░░░░░░░░░░░░░░░░░ 0%",
+              "```",
+              "",
+              "**状态**: ⏳ 正在初始化...",
+              "",
+              "---",
+              "> 💡 中等任务会先分析再开发，确保方案合理。"
+            ].join("\n");
+
+            // 更新或创建进度评论
+            if (progressCommentId) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: progressCommentId,
+                body: progressBody
+              });
+              console.log(`更新进度追踪评论: #${progressCommentId}`);
+            } else {
+              const progressComment = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: progressBody
+              });
+              progressCommentId = progressComment.data.id;
+              console.log(`创建新的进度追踪评论: #${progressCommentId}`);
+            }
+
+            // 保存评论 ID 和原始内容供后续更新
+            core.setOutput('progress_comment_id', progressCommentId);
+            core.setOutput('existing_comment_body', existingCommentBody);
 
       - name: Update Progress - Loading Template
         uses: actions/github-script@v7
@@ -152,50 +187,49 @@ jobs:
             const issueNumber = ${{ steps.issue_info.outputs.issue_number }};
             const progressCommentId = ${{ steps.update_issue_status.outputs.progress_comment_id }};
             const continuationContext = '${{ github.event.inputs.continuation_context }}' || '';
-            const isContination = continuationContext.length > 0;
-            
+            const isContinuation = continuationContext.length > 0;
+            const existingCommentBody = `${{ steps.update_issue_status.outputs.existing_comment_body }}`;
+
+            // 构建进度部分
+            const progressSection = [
+              "## 🤖 Medium Agent 执行中",
+              "",
+              "**当前阶段**: 📝 加载模板和准备提示词...",
+              "",
+              "```",
+              "██░░░░░░░░░░░░░░░░░░ 10%",
+              "```",
+              "",
+              "**状态**: ⏳ 正在加载开发模板...",
+            ].join("\n");
+
             if (progressCommentId) {
+              const body = isContinuation && existingCommentBody
+                ? existingCommentBody.split('---')[0] + "---\n\n" + progressSection
+                : [
+                    "🔧 **Medium Agent 启动**",
+                    "",
+                    "---",
+                    "",
+                    "## 📊 执行进度",
+                    "",
+                    "**当前阶段**: 📝 加载模板和准备提示词...",
+                    "",
+                    "```",
+                    "██░░░░░░░░░░░░░░░░░░ 10%",
+                    "```",
+                    "",
+                    "**状态**: ⏳ 正在加载开发模板...",
+                    "",
+                    "---",
+                    "> 💡 中等任务会先分析再开发，确保方案合理。"
+                  ].join("\n");
+
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 comment_id: progressCommentId,
-                body: isContination ? [
-                  "🔄 **Medium Agent 继续迭代**",
-                  "",
-                  "**上下文**: " + continuationContext,
-                  "",
-                  "---",
-                  "",
-                  "## 📊 执行进度",
-                  "",
-                  "**当前阶段**: 📝 加载模板和准备提示词...",
-                  "",
-                  "```",
-                  "██░░░░░░░░░░░░░░░░░░ 10%",
-                  "```",
-                  "",
-                  "**状态**: ⏳ 正在加载开发模板...",
-                  "",
-                  "---",
-                  "> 🔧 基于之前的进度继续开发..."
-                ].join("\n") : [
-                  "🔧 **Medium Agent 启动**",
-                  "",
-                  "---",
-                  "",
-                  "## 📊 执行进度",
-                  "",
-                  "**当前阶段**: 📝 加载模板和准备提示词...",
-                  "",
-                  "```",
-                  "██░░░░░░░░░░░░░░░░░░ 10%",
-                  "```",
-                  "",
-                  "**状态**: ⏳ 正在加载开发模板...",
-                  "",
-                  "---",
-                  "> 💡 中等任务会先分析再开发，确保方案合理。"
-                ].join("\n")
+                body: body
               });
             }
 
@@ -220,54 +254,53 @@ jobs:
             const issueNumber = ${{ steps.issue_info.outputs.issue_number }};
             const progressCommentId = ${{ steps.update_issue_status.outputs.progress_comment_id }};
             const continuationContext = '${{ github.event.inputs.continuation_context }}' || '';
-            const isContination = continuationContext.length > 0;
-            
+            const isContinuation = continuationContext.length > 0;
+            const existingCommentBody = `${{ steps.update_issue_status.outputs.existing_comment_body }}`;
+
+            // 构建进度部分
+            const progressSection = [
+              "## 🤖 Medium Agent 执行中",
+              "",
+              "**当前阶段**: 🤖 AI 正在分析和开发...",
+              "",
+              "```",
+              "████████░░░░░░░░░░░░ 40%",
+              "```",
+              "",
+              "**状态**: ⏳ Claude 正在处理任务...",
+              "",
+              "**提示**: 这可能需要几分钟时间，请耐心等待",
+            ].join("\n");
+
             if (progressCommentId) {
+              const body = isContinuation && existingCommentBody
+                ? existingCommentBody.split('---')[0] + "---\n\n" + progressSection
+                : [
+                    "🔧 **Medium Agent 启动**",
+                    "",
+                    "---",
+                    "",
+                    "## 📊 执行进度",
+                    "",
+                    "**当前阶段**: 🤖 AI 正在分析和开发...",
+                    "",
+                    "```",
+                    "████████░░░░░░░░░░░░ 40%",
+                    "```",
+                    "",
+                    "**状态**: ⏳ Claude 正在处理任务...",
+                    "",
+                    "**提示**: 这可能需要几分钟时间，请耐心等待",
+                    "",
+                    "---",
+                    "> 💡 中等任务会先分析再开发，确保方案合理。"
+                  ].join("\n");
+
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 comment_id: progressCommentId,
-                body: isContination ? [
-                  "🔄 **Medium Agent 继续迭代**",
-                  "",
-                  "**上下文**: " + continuationContext,
-                  "",
-                  "---",
-                  "",
-                  "## 📊 执行进度",
-                  "",
-                  "**当前阶段**: 🤖 AI 正在分析和开发...",
-                  "",
-                  "```",
-                  "████████░░░░░░░░░░░░ 40%",
-                  "```",
-                  "",
-                  "**状态**: ⏳ Claude 正在处理任务...",
-                  "",
-                  "**提示**: 这可能需要几分钟时间，请耐心等待",
-                  "",
-                  "---",
-                  "> 🔧 基于之前的进度继续开发..."
-                ].join("\n") : [
-                  "🔧 **Medium Agent 启动**",
-                  "",
-                  "---",
-                  "",
-                  "## 📊 执行进度",
-                  "",
-                  "**当前阶段**: 🤖 AI 正在分析和开发...",
-                  "",
-                  "```",
-                  "████████░░░░░░░░░░░░ 40%",
-                  "```",
-                  "",
-                  "**状态**: ⏳ Claude 正在处理任务...",
-                  "",
-                  "**提示**: 这可能需要几分钟时间，请耐心等待",
-                  "",
-                  "---",
-                  "> 💡 中等任务会先分析再开发，确保方案合理。"
-                ].join("\n")
+                body: body
               });
             }
 
@@ -294,52 +327,71 @@ jobs:
             const issueNumber = ${{ steps.issue_info.outputs.issue_number }};
             const progressCommentId = ${{ steps.update_issue_status.outputs.progress_comment_id }};
             const continuationContext = '${{ github.event.inputs.continuation_context }}' || '';
-            const isContination = continuationContext.length > 0;
+            const isContinuation = continuationContext.length > 0;
+            const existingCommentBody = `${{ steps.update_issue_status.outputs.existing_comment_body }}`;
+
+            // 获取最近创建的 PR（由本次执行创建）
+            let prInfo = '';
+            try {
+              // 获取最近的 PR
+              const { data: prs } = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                sort: 'created',
+                direction: 'desc',
+                per_page: 5
+              });
+
+              // 查找标题或分支包含 issue 编号的 PR
+              const relatedPR = prs.find(pr =>
+                pr.title.includes(`#${issueNumber}`) ||
+                pr.title.toLowerCase().includes(`issue-${issueNumber}`) ||
+                pr.head.ref.includes(`issue-${issueNumber}`) ||
+                pr.body?.includes(`#${issueNumber}`)
+              );
+
+              if (relatedPR) {
+                prInfo = `\n\n**创建的 PR**: [#${relatedPR.number} ${relatedPR.title}](${relatedPR.html_url})`;
+              }
+            } catch (e) {
+              console.log("获取 PR 信息失败:", e.message);
+            }
+
+            // 构建完成状态
+            const completionSection = [
+              "## ✅ Medium Agent 完成",
+              "",
+              "**当前阶段**: ✅ 完成",
+              "",
+              "```",
+              "████████████████████ 100%",
+              "```",
+              "",
+              "**状态**: ✅ 需求分析和代码实现已完成",
+              prInfo,
+              "",
+              `**Actions 日志**: [查看详情](/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }})`
+            ].join("\n");
 
             // 更新进度评论为完成状态
             if (progressCommentId) {
               try {
+                const body = isContinuation && existingCommentBody
+                  ? existingCommentBody.split('---')[0] + "---\n\n" + completionSection
+                  : [
+                      "🔧 **Medium Agent**",
+                      "",
+                      "---",
+                      "",
+                      completionSection
+                    ].join("\n");
+
                 await github.rest.issues.updateComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   comment_id: progressCommentId,
-                  body: isContination ? [
-                    "🔄 **Medium Agent 继续迭代**",
-                    "",
-                    "**上下文**: " + continuationContext,
-                    "",
-                    "---",
-                    "",
-                    "## 📊 执行进度",
-                    "",
-                    "**当前阶段**: ✅ 完成",
-                    "",
-                    "```",
-                    "████████████████████ 100%",
-                    "```",
-                    "",
-                    "**状态**: ✅ 任务已完成",
-                    "",
-                    "---",
-                    "> 🔧 基于之前的进度继续开发..."
-                  ].join("\n") : [
-                    "🔧 **Medium Agent 启动**",
-                    "",
-                    "---",
-                    "",
-                    "## 📊 执行进度",
-                    "",
-                    "**当前阶段**: ✅ 完成",
-                    "",
-                    "```",
-                    "████████████████████ 100%",
-                    "```",
-                    "",
-                    "**状态**: ✅ 任务已完成",
-                    "",
-                    "---",
-                    "> 💡 中等任务会先分析再开发，确保方案合理。"
-                  ].join("\n")
+                  body: body
                 });
               } catch (e) {
                 console.log("无法更新进度评论:", e.message);
@@ -356,6 +408,15 @@ jobs:
               });
             } catch (e) {}
 
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                name: 'agent:medium'
+              });
+            } catch (e) {}
+
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -363,22 +424,7 @@ jobs:
               labels: ['✅ ai-completed']
             });
 
-            // 发布成功评论
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber,
-              body: [
-                "✅ **Medium Agent 完成**",
-                "",
-                "需求分析和代码实现已完成，PR 已创建。",
-                "",
-                "请查看上方的进度追踪评论获取 PR 链接。",
-                "",
-                "---",
-                "> 🤖 由 Vibe Medium Agent 自动处理"
-              ].join("\n")
-            });
+            // 不再创建额外评论，所有信息都在进度追踪评论中
 
       - name: Update Issue on Failure
         if: failure()
@@ -388,64 +434,74 @@ jobs:
             const issueNumber = ${{ steps.issue_info.outputs.issue_number }};
             const progressCommentId = ${{ steps.update_issue_status.outputs.progress_comment_id }};
             const continuationContext = '${{ github.event.inputs.continuation_context }}' || '';
-            const isContination = continuationContext.length > 0;
+            const isContinuation = continuationContext.length > 0;
+            const existingCommentBody = `${{ steps.update_issue_status.outputs.existing_comment_body }}`;
+
+            // 构建失败状态
+            const failureSection = [
+              "## ❌ Medium Agent 失败",
+              "",
+              "**当前阶段**: ❌ 失败",
+              "",
+              "```",
+              "████████░░░░░░░░░░░░ 40%",
+              "```",
+              "",
+              "**状态**: ❌ 执行过程中出现错误",
+              "",
+              `**Actions 日志**: [查看详情](/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }})`,
+              "",
+              "**可能的原因:**",
+              "- 需求描述不够清晰",
+              "- 涉及的模块过多",
+              "- 技术方案需要人工确认",
+              "",
+              "**解决方案:**",
+              "- 补充需求描述后使用 `/agent-medium` 重试",
+              "- 或将任务拆分为多个简单任务",
+              "- 或使用 `/agent-complex` 让 AI 先拆分任务"
+            ].join("\n");
 
             // 更新进度评论为失败状态
             if (progressCommentId) {
               try {
+                const body = isContinuation && existingCommentBody
+                  ? existingCommentBody.split('---')[0] + "---\n\n" + failureSection
+                  : [
+                      "🔧 **Medium Agent**",
+                      "",
+                      "---",
+                      "",
+                      failureSection
+                    ].join("\n");
+
                 await github.rest.issues.updateComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   comment_id: progressCommentId,
-                  body: isContination ? [
-                    "🔄 **Medium Agent 继续迭代**",
-                    "",
-                    "**上下文**: " + continuationContext,
-                    "",
-                    "---",
-                    "",
-                    "## 📊 执行进度",
-                    "",
-                    "**当前阶段**: ❌ 失败",
-                    "",
-                    "```",
-                    "████████░░░░░░░░░░░░ 40%",
-                    "```",
-                    "",
-                    "**状态**: ❌ 执行过程中出现错误",
-                    "",
-                    "---",
-                    "> 🔧 基于之前的进度继续开发..."
-                  ].join("\n") : [
-                    "🔧 **Medium Agent 启动**",
-                    "",
-                    "---",
-                    "",
-                    "## 📊 执行进度",
-                    "",
-                    "**当前阶段**: ❌ 失败",
-                    "",
-                    "```",
-                    "████████░░░░░░░░░░░░ 40%",
-                    "```",
-                    "",
-                    "**状态**: ❌ 执行过程中出现错误",
-                    "",
-                    "---",
-                    "> 💡 中等任务会先分析再开发，确保方案合理。"
-                  ].join("\n")
+                  body: body
                 });
               } catch (e) {
                 console.log("无法更新进度评论:", e.message);
               }
             }
 
+            // 移除 processing 标签
             try {
               await github.rest.issues.removeLabel({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
                 name: '🤖 ai-processing'
+              });
+            } catch (e) {}
+
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                name: 'agent:medium'
               });
             } catch (e) {}
 
@@ -456,26 +512,4 @@ jobs:
               labels: ['❌ ai-failed', 'needs-review']
             });
 
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber,
-              body: [
-                "❌ **Medium Agent 失败**",
-                "",
-                "请查看 [Actions 日志](/${{ github.repository }}/actions/runs/${{ github.run_id }}) 了解详情。",
-                "",
-                "**可能的原因:**",
-                "- 需求描述不够清晰",
-                "- 涉及的模块过多",
-                "- 技术方案需要人工确认",
-                "",
-                "**解决方案:**",
-                "- 补充需求描述后使用 `/agent-medium` 重试",
-                "- 或将任务拆分为多个简单任务",
-                "- 或使用 `/agent-complex` 让 AI 先拆分任务",
-                "",
-                "---",
-                "> 🤖 由 Vibe Medium Agent 处理"
-              ].join("\n")
-            });
+            // 不再创建额外评论，所有信息都在进度追踪评论中
