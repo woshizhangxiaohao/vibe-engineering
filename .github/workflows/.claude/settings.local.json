@@ -12,7 +12,8 @@
       "Bash(npm run build:*)",
       "Bash(git push:*)",
       "Bash(python3:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(git fetch:*)"
     ]
   }
 }

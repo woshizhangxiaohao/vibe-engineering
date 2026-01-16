@@ -489,6 +489,24 @@ docs/
 
 ## 更新日志
 
+- **2026-01-17** (最新更新):
+  - ✅ **Prompt 模板化完成**：所有 workflow 中的 prompt 已提取为独立模板文件
+    - `vibe-agent.yml` 使用 `load-prompt` Action 加载模板
+    - 支持变量替换，便于维护和版本控制
+    - 模板位置：`.github/prompts/agents/vibe/`
+  - ✅ **统一 Agent 入口优化**：
+    - `vibe-agent.yml` 重构，支持 `/agent ui|be|fe` 统一命令格式
+    - 兼容旧命令：`/agent-ui`, `/agent-be`, `/agent-fe`
+    - 支持 `--spec #123` 参数指定 UI Spec 来源
+    - UI Spec 输出到 `docs/specs/issue-{number}-ui.md`，避免评论折叠
+  - ✅ **工作流和前端路由系统重构**：
+    - 优化任务路由逻辑
+    - 改进前端代码生成流程
+  - ✅ **每日维护工作流调整**：
+    - `weekly-maintenance.yml` 改为每天凌晨 3:00（北京时间）执行
+    - 支持手动触发（workflow_dispatch）
+    - 更新文档说明查看方法
+
 - **2026-01-16** (目录结构优化):
   - 新增 `update-issue-status` Action：统一 Issue 状态标签管理
   - 整合前端 prompt：合并 `fe/system-prompt.md` 到 `fe-codegen.md`
@@ -504,11 +522,13 @@ docs/
     - 新增 router.complexity_thresholds 配置
     - 新增 paths 配置（spec_dir, prompts_dir）
     - 新增 git 配置（bot_name, bot_email）
-  - 当前保留 14 个有效 workflow、4 个 Actions、9 个 Prompt 模板
+  - 当前保留 **14 个有效 workflow**、**4 个 Actions**、**9 个 Prompt 模板**
 
 - **2026-01-16** (工作流优化):
   - 新增可复用 Composite Actions：
     - `openrouter-api`: 带重试机制的 OpenRouter API 客户端
+    - `load-prompt`: Prompt 模板加载器
+    - `context-discovery`: 项目上下文发现
   - 新增中央配置文件 `.github/config/workflow-config.json`
   - 重构 `vibe-router.yml`：
     - 升级模型到 `google/gemini-2.0-flash-001`
@@ -522,12 +542,19 @@ docs/
     - 删除 `auto-fix-CI-failures.yml`（监听不存在的 CI workflow）
     - 删除 `sync-issue-status.yml`（硬编码 issue 号，功能过时）
     - 删除 `error-handler.yml`（监听不存在的 workflows）
-- **2026-01**:
+
+- **2026-01** (统一 Agent 入口):
   - 统一 Agent 入口 (`vibe-agent.yml`)
   - 合并 issue-router/agent-ui/backend-agent/frontend-agent
   - 新增 `/agent ui|be|fe` 命令格式
   - UI Spec 输出到文件，避免评论折叠
   - 支持 `--spec` 参数指定 UI Spec 来源
+
+- **2025-12** (新增功能):
+  - 新增 `parent-child-issue-guard.yml`：管理父子 Issue 关系
+  - 新增 `update-prd-status.yml`：自动更新 PRD Issue 状态
+  - 实现 AI 对话面板 (Chat Console) 前端功能
+
 - **2024-2025**:
   - 初始版本，包含所有核心工作流
   - 支持 OpenRouter 集成

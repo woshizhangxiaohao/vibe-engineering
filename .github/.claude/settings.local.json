@@ -5,7 +5,8 @@
       "Bash(ls:*)",
       "Bash(grep:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nrefactor: 清理 .github 目录结构，整合冗余文件\n\n- 删除未使用的 scripts/ 目录（7个脚本均未被工作流调用）\n- 删除冗余的 actions/github-utils/（功能整合到新 Action）\n- 新增 actions/update-issue-status/ 统一 Issue 状态标签管理\n- 更新 workflow-config.json 添加 router/paths/git 配置\n- 更新 README 文档反映新的目录结构\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nrefactor: 清理 .github 目录结构，整合冗余文件\n\n- 删除未使用的 scripts/ 目录（7个脚本均未被工作流调用）\n- 删除冗余的 actions/github-utils/（功能整合到新 Action）\n- 新增 actions/update-issue-status/ 统一 Issue 状态标签管理\n- 更新 workflow-config.json 添加 router/paths/git 配置\n- 更新 README 文档反映新的目录结构\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)"
     ]
   }
 }
