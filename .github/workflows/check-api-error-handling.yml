@@ -33,15 +33,22 @@ jobs:
         id: check
         continue-on-error: true
         run: |
+          # 运行检查脚本
           python3 scripts/check-api-error-handling.py > check_results.txt 2>&1
           exit_code=$?
+          
+          # 设置退出码输出
           echo "exit_code=$exit_code" >> $GITHUB_OUTPUT
           
-          # 读取检查结果（转义特殊字符）
+          # 读取检查结果（使用 EOF 标记处理多行输出）
           if [ -f check_results.txt ]; then
-            # 使用 base64 编码避免特殊字符问题
-            check_results_base64=$(base64 -w 0 check_results.txt)
-            echo "check_results_base64=$check_results_base64" >> $GITHUB_OUTPUT
+            {
+              echo 'check_results<<EOF'
+              cat check_results.txt
+              echo EOF
+            } >> $GITHUB_OUTPUT
+          else
+            echo "check_results=检查脚本执行失败，未生成结果文件" >> $GITHUB_OUTPUT
           fi
       
       - name: Comment PR with Results
@@ -49,17 +56,9 @@ jobs:
         if: always()
         with:
           script: |
+            // 获取检查结果（处理空值情况）
             const exitCode = '${{ steps.check.outputs.exit_code }}' || '1';
-            // 解码 base64 编码的检查结果
-            let checkResults = '检查脚本执行失败';
-            const checkResultsBase64 = '${{ steps.check.outputs.check_results_base64 }}';
-            if (checkResultsBase64 && checkResultsBase64 !== '') {
-              try {
-                checkResults = Buffer.from(checkResultsBase64, 'base64').toString('utf-8');
-              } catch (e) {
-                checkResults = '无法解码检查结果';
-              }
-            }
+            const checkResults = `${{ steps.check.outputs.check_results }}` || '检查脚本执行失败';
             
             // 查找是否已有评论
             const { data: comments } = await github.rest.issues.listComments({
@@ -73,6 +72,7 @@ jobs:
               comment.body.includes('API 错误处理检查')
             );
             
+            // 构建评论内容
             let commentBody = '';
             if (exitCode === '0') {
               commentBody = [
@@ -136,8 +136,8 @@ jobs:
               ].join('\n');
             }
             
+            // 更新或创建评论
             if (botComment) {
-              // 更新现有评论
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -145,7 +145,6 @@ jobs:
                 body: commentBody
               });
             } else {
-              // 创建新评论
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -155,7 +154,7 @@ jobs:
             }
       
       - name: Fail if check failed
-        if: steps.check.outputs.exit_code != '0' && steps.check.outputs.exit_code != '' && steps.check.outputs.exit_code != null
+        if: steps.check.outputs.exit_code != '0' && steps.check.outputs.exit_code != ''
         run: |
           echo "❌ API 错误处理检查失败"
           echo "请查看 PR 评论了解详情"
