@@ -1,0 +1,462 @@
+name: Vibe Continuous - 24小时自动迭代引擎
+
+on:
+  # 每小时运行一次，持续检测
+  schedule:
+    - cron: '0 * * * *'
+  # 支持手动触发
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: '指定检测的 Issue 编号（留空则检测所有）'
+        required: false
+        type: string
+      mode:
+        description: '运行模式'
+        required: true
+        default: 'scan'
+        type: choice
+        options:
+          - scan        # 扫描所有进行中的 issue
+          - check       # 检测指定 issue 完成度
+          - continue    # 继续处理未完成任务
+
+jobs:
+  continuous-iteration:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+      pull-requests: read
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Scan and Continue Issues
+        uses: actions/github-script@v7
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        with:
+          script: |
+            const fs = require('fs');
+            const mode = '${{ github.event.inputs.mode }}' || 'scan';
+            const specificIssue = '${{ github.event.inputs.issue_number }}';
+            const now = new Date();
+
+            console.log("=".repeat(60));
+            console.log("🔄 VIBE CONTINUOUS - 24小时自动迭代引擎");
+            console.log("=".repeat(60));
+            console.log(`时间: ${now.toISOString()}`);
+            console.log(`模式: ${mode}`);
+            if (specificIssue) console.log(`指定 Issue: #${specificIssue}`);
+
+            // 读取配置
+            let config;
+            try {
+              const configContent = fs.readFileSync('.github/config/workflow-config.json', 'utf8');
+              config = JSON.parse(configContent);
+            } catch (error) {
+              console.warn(`⚠️ 无法读取配置文件，使用默认值`);
+              config = {
+                continuous: {
+                  check_interval_hours: 1,
+                  max_iterations_per_issue: 10,
+                  completion_check_model: "google/gemini-2.0-flash-001"
+                }
+              };
+            }
+
+            // 获取需要检测的 Issues
+            async function getTargetIssues() {
+              if (specificIssue) {
+                const { data: issue } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: parseInt(specificIssue)
+                });
+                return [issue];
+              }
+
+              // 获取所有处于开发中的 issue
+              const { data: issues } = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                per_page: 100
+              });
+
+              // 过滤出需要检测的 issue
+              // 条件：有验收标准 + 有 PR 或正在处理中
+              return issues.filter(issue => {
+                const labels = issue.labels.map(l => l.name);
+                const body = issue.body || '';
+
+                // 必须有验收标准
+                const hasAcceptanceCriteria =
+                  body.includes('验收标准') ||
+                  body.includes('Acceptance Criteria') ||
+                  body.includes('## ✅') ||
+                  body.includes('- [ ]');
+
+                // 必须是进行中或已有 PR
+                const isInProgress =
+                  labels.includes('🤖 ai-processing') ||
+                  labels.includes('✅ ai-completed') ||
+                  labels.some(l => l.includes('complexity:'));
+
+                // 排除已关闭和跳过的
+                const shouldSkip =
+                  labels.includes('skip-vibe') ||
+                  labels.includes('needs-triage') ||
+                  issue.title.startsWith('[PRD]');
+
+                return hasAcceptanceCriteria && isInProgress && !shouldSkip;
+              });
+            }
+
+            // 解析验收标准
+            function parseAcceptanceCriteria(body) {
+              const criteria = [];
+              const lines = body.split('\n');
+              let inCriteriaSection = false;
+
+              for (const line of lines) {
+                // 检测验收标准区块
+                if (line.includes('验收标准') || line.includes('Acceptance Criteria') || line.includes('## ✅')) {
+                  inCriteriaSection = true;
+                  continue;
+                }
+
+                // 遇到新的标题结束区块
+                if (inCriteriaSection && line.startsWith('## ') && !line.includes('✅')) {
+                  inCriteriaSection = false;
+                  continue;
+                }
+
+                // 提取 checkbox 项目
+                const checkboxMatch = line.match(/^[\s-]*\[([x ])\]\s*(.+)/i);
+                if (checkboxMatch) {
+                  criteria.push({
+                    completed: checkboxMatch[1].toLowerCase() === 'x',
+                    text: checkboxMatch[2].trim()
+                  });
+                }
+              }
+
+              // 如果没找到专门的验收标准区块，搜索整个文档的 checkbox
+              if (criteria.length === 0) {
+                const allCheckboxes = body.match(/\[([x ])\]\s*(.+)/gi) || [];
+                for (const match of allCheckboxes) {
+                  const m = match.match(/\[([x ])\]\s*(.+)/i);
+                  if (m) {
+                    criteria.push({
+                      completed: m[1].toLowerCase() === 'x',
+                      text: m[2].trim()
+                    });
+                  }
+                }
+              }
+
+              return criteria;
+            }
+
+            // 获取 issue 相关的 PR
+            async function getRelatedPRs(issueNumber) {
+              try {
+                const { data: events } = await github.rest.issues.listEventsForTimeline({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber
+                });
+
+                const prNumbers = new Set();
+                for (const event of events) {
+                  if (event.event === 'cross-referenced' && event.source?.issue?.pull_request) {
+                    prNumbers.add(event.source.issue.number);
+                  }
+                }
+
+                const prs = [];
+                for (const prNumber of prNumbers) {
+                  const { data: pr } = await github.rest.pulls.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: prNumber
+                  });
+                  prs.push(pr);
+                }
+
+                return prs;
+              } catch (error) {
+                console.warn(`⚠️ 获取关联 PR 失败: ${error.message}`);
+                return [];
+              }
+            }
+
+            // 检查 PR 的 CI 状态
+            async function getPRStatus(prNumber) {
+              try {
+                const { data: checks } = await github.rest.checks.listForRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `refs/pull/${prNumber}/head`
+                });
+
+                const status = {
+                  total: checks.check_runs.length,
+                  success: 0,
+                  failure: 0,
+                  pending: 0
+                };
+
+                for (const check of checks.check_runs) {
+                  if (check.conclusion === 'success') status.success++;
+                  else if (check.conclusion === 'failure') status.failure++;
+                  else status.pending++;
+                }
+
+                return status;
+              } catch (error) {
+                return { total: 0, success: 0, failure: 0, pending: 0 };
+              }
+            }
+
+            // 使用 AI 评估完成度
+            async function aiEvaluateCompletion(issue, criteria, prInfo) {
+              const prompt = `
+            你是一个项目验收专家。请评估以下 GitHub Issue 的完成情况。
+
+            ## Issue 信息
+            标题: ${issue.title}
+            描述:
+            ${issue.body?.substring(0, 2000) || '无描述'}
+
+            ## 验收标准
+            ${criteria.map((c, i) => `${i + 1}. [${c.completed ? 'x' : ' '}] ${c.text}`).join('\n')}
+
+            ## 关联 PR 信息
+            ${prInfo || '暂无关联 PR'}
+
+            ## 请分析并返回 JSON 格式：
+            {
+              "completion_percentage": 0-100 的数字,
+              "completed_items": ["已完成的具体项目"],
+              "pending_items": ["未完成的具体项目"],
+              "blocking_issues": ["阻塞问题"],
+              "next_action": "建议的下一步行动",
+              "should_continue": true/false 是否需要继续开发,
+              "agent_type": "simple/medium/complex" 如果需要继续，推荐的 agent 类型
+            }
+            `;
+
+              try {
+                const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                  method: "POST",
+                  headers: {
+                    "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com/lessthanno/vibe-engineering-playbook",
+                    "X-Title": "Vibe Continuous"
+                  },
+                  body: JSON.stringify({
+                    model: config.continuous?.completion_check_model || "google/gemini-2.0-flash-001",
+                    messages: [{ role: "user", content: prompt }],
+                    temperature: 0.1,
+                    response_format: { type: "json_object" }
+                  })
+                });
+
+                if (!response.ok) {
+                  throw new Error(`API 请求失败: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const content = data.choices?.[0]?.message?.content || '';
+                const jsonMatch = content.match(/\{[\s\S]*\}/);
+
+                if (jsonMatch) {
+                  return JSON.parse(jsonMatch[0]);
+                }
+              } catch (error) {
+                console.error(`AI 评估失败: ${error.message}`);
+              }
+
+              // 回退到基于 checkbox 的简单评估
+              const completed = criteria.filter(c => c.completed).length;
+              const total = criteria.length;
+              const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+              return {
+                completion_percentage: percentage,
+                completed_items: criteria.filter(c => c.completed).map(c => c.text),
+                pending_items: criteria.filter(c => !c.completed).map(c => c.text),
+                blocking_issues: [],
+                next_action: percentage < 100 ? "继续完成未实现的功能" : "准备合并",
+                should_continue: percentage < 100,
+                agent_type: "medium"
+              };
+            }
+
+            // 触发 Agent 继续处理
+            async function triggerContinuation(issue, evaluation) {
+              // 检查迭代次数限制
+              const iterationMatch = issue.body?.match(/<!-- vibe-iteration: (\d+) -->/);
+              const currentIteration = iterationMatch ? parseInt(iterationMatch[1]) : 0;
+              const maxIterations = config.continuous?.max_iterations_per_issue || 10;
+
+              if (currentIteration >= maxIterations) {
+                console.log(`⚠️ Issue #${issue.number} 已达最大迭代次数 (${maxIterations})`);
+
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: [
+                    "⚠️ **自动迭代已达上限**",
+                    "",
+                    `此任务已自动迭代 ${maxIterations} 次，需要人工介入。`,
+                    "",
+                    `**当前完成度**: ${evaluation.completion_percentage}%`,
+                    "",
+                    "**未完成项目**:",
+                    evaluation.pending_items.map(p => `- ${p}`).join('\n'),
+                    "",
+                    "---",
+                    "> 🔍 由 Vibe Continuous 检测"
+                  ].join("\n")
+                });
+
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  labels: ['needs-review', '⚠️ iteration-limit']
+                });
+
+                return false;
+              }
+
+              // 构建继续处理的指令
+              const continuationPrompt = [
+                `## 🔄 自动迭代 #${currentIteration + 1}`,
+                "",
+                "**完成度检测结果**:",
+                `- 当前进度: ${evaluation.completion_percentage}%`,
+                `- 已完成: ${evaluation.completed_items.length} 项`,
+                `- 待完成: ${evaluation.pending_items.length} 项`,
+                "",
+                "**待完成项目**:",
+                evaluation.pending_items.map(p => `- [ ] ${p}`).join('\n'),
+                "",
+                "**下一步行动**:",
+                evaluation.next_action,
+                "",
+                "---",
+                "",
+                `/${evaluation.agent_type === 'simple' ? 'agent-simple' : evaluation.agent_type === 'complex' ? 'agent-complex' : 'agent-medium'}`,
+                "",
+                "---",
+                "> 🔄 由 Vibe Continuous 自动触发"
+              ].join("\n");
+
+              // 更新 issue body 中的迭代计数
+              const newBody = issue.body?.includes('<!-- vibe-iteration:')
+                ? issue.body.replace(/<!-- vibe-iteration: \d+ -->/, `<!-- vibe-iteration: ${currentIteration + 1} -->`)
+                : `${issue.body || ''}\n\n<!-- vibe-iteration: ${currentIteration + 1} -->`;
+
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: newBody
+              });
+
+              // 发布继续处理的评论
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: continuationPrompt
+              });
+
+              console.log(`✅ 已触发 Issue #${issue.number} 继续迭代 (第 ${currentIteration + 1} 次)`);
+              return true;
+            }
+
+            // 主逻辑
+            const targetIssues = await getTargetIssues();
+            console.log(`\n📋 找到 ${targetIssues.length} 个需要检测的 Issue\n`);
+
+            const results = {
+              checked: 0,
+              completed: 0,
+              continued: 0,
+              skipped: 0
+            };
+
+            for (const issue of targetIssues) {
+              console.log(`\n${"─".repeat(50)}`);
+              console.log(`📌 Issue #${issue.number}: ${issue.title}`);
+
+              // 解析验收标准
+              const criteria = parseAcceptanceCriteria(issue.body || '');
+              if (criteria.length === 0) {
+                console.log(`  ⏭️ 跳过: 无可识别的验收标准`);
+                results.skipped++;
+                continue;
+              }
+
+              console.log(`  📋 验收标准: ${criteria.length} 项`);
+              console.log(`  ✅ 已完成: ${criteria.filter(c => c.completed).length} 项`);
+
+              // 获取关联 PR
+              const relatedPRs = await getRelatedPRs(issue.number);
+              let prInfo = '';
+
+              if (relatedPRs.length > 0) {
+                const prDetails = [];
+                for (const pr of relatedPRs) {
+                  const status = await getPRStatus(pr.number);
+                  prDetails.push(`PR #${pr.number}: ${pr.state} (CI: ${status.success}/${status.total} 通过)`);
+                }
+                prInfo = prDetails.join('\n');
+                console.log(`  🔗 关联 PR: ${relatedPRs.length} 个`);
+              }
+
+              // AI 评估完成度
+              const evaluation = await aiEvaluateCompletion(issue, criteria, prInfo);
+              console.log(`  📊 AI 评估完成度: ${evaluation.completion_percentage}%`);
+              results.checked++;
+
+              // 判断是否需要继续
+              if (evaluation.completion_percentage >= 100) {
+                console.log(`  ✅ 任务已完成！`);
+                results.completed++;
+
+                // 添加完成标签
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  labels: ['✅ verified']
+                });
+
+              } else if (evaluation.should_continue && mode !== 'check') {
+                // 触发继续迭代
+                const triggered = await triggerContinuation(issue, evaluation);
+                if (triggered) results.continued++;
+              } else {
+                console.log(`  ℹ️ 完成度: ${evaluation.completion_percentage}% (模式: ${mode})`);
+              }
+            }
+
+            // 输出汇总
+            console.log("\n" + "=".repeat(60));
+            console.log("📊 检测结果汇总");
+            console.log("=".repeat(60));
+            console.log(`  检测: ${results.checked} 个`);
+            console.log(`  已完成: ${results.completed} 个`);
+            console.log(`  继续迭代: ${results.continued} 个`);
+            console.log(`  跳过: ${results.skipped} 个`);

@@ -28,6 +28,15 @@
     "check_interval_cron": "0 * * * *"
   },
 
+  "continuous": {
+    "enabled": true,
+    "check_interval_cron": "0 * * * *",
+    "max_iterations_per_issue": 10,
+    "completion_check_model": "google/gemini-2.0-flash-001",
+    "auto_continue_threshold": 80,
+    "require_pr_checks_pass": true
+  },
+
   "agents": {
     "default_model": "anthropic/claude-sonnet-4",
     "ui_model": "google/gemini-2.0-flash-001",
@@ -51,7 +60,9 @@
       "failed": "❌ ai-failed",
       "deployed": "✅ deployed",
       "stale": "⚠️ stale",
-      "needs_review": "needs-review"
+      "needs_review": "needs-review",
+      "verified": "✅ verified",
+      "iteration_limit": "⚠️ iteration-limit"
     },
     "complexity": {
       "simple": "complexity:simple",
