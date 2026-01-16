@@ -77,5 +77,26 @@ Closes #{{issue_number}}"
 2. ✅ 编写了实现需求的代码
 3. ✅ 代码已提交并推送
 4. ✅ 已创建 PR
+5. ✅ **更新了 Issue body 中的验收标准 checkbox**
 
 **如果没有创建 PR，任务就是失败的。**
+
+## ⚠️ 必须更新验收标准 Checkbox
+
+在完成任务后，你必须更新 Issue body，将验收标准的 checkbox 从 `- [ ]` 改为 `- [x]`：
+
+```bash
+# 获取当前 Issue body，更新 checkbox，然后保存
+CURRENT_BODY=$(gh issue view {{issue_number}} --json body --jq '.body')
+UPDATED_BODY=$(echo "$CURRENT_BODY" | sed 's/- \[ \] /- [x] /g')
+gh issue edit {{issue_number}} --body "$UPDATED_BODY"
+```
+
+**不更新 checkbox 等于任务未完成！**
+
+## 处理"代码已存在"的情况
+
+如果你发现代码已经存在：
+1. **验证代码是否满足所有验收标准**
+2. **必须更新 Issue body 中的 checkbox**
+3. 不需要创建 PR，但必须在评论中说明原因

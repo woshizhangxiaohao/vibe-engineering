@@ -99,5 +99,31 @@ Closes #{{issue_number}}"
 3. ✅ 代码已提交
 4. ✅ 已推送到远程
 5. ✅ 已创建 PR
+6. ✅ **更新了 Issue body 中的验收标准 checkbox**
 
 **如果没有创建 PR，任务就是失败的。**
+
+## ⚠️ 必须更新验收标准 Checkbox
+
+在完成任务后，你必须使用 GitHub API 或 `gh` 命令更新 Issue body，将验收标准的 checkbox 从 `- [ ]` 改为 `- [x]`：
+
+```bash
+# 获取当前 Issue body
+CURRENT_BODY=$(gh issue view {{issue_number}} --json body --jq '.body')
+
+# 将未完成的 checkbox 改为已完成（只针对你完成的项目）
+UPDATED_BODY=$(echo "$CURRENT_BODY" | sed 's/- \[ \] /- [x] /g')
+
+# 更新 Issue body
+gh issue edit {{issue_number}} --body "$UPDATED_BODY"
+```
+
+**不更新 checkbox 等于任务未完成！**
+
+## 处理"代码已存在"的情况
+
+如果你发现代码已经存在：
+1. **仍然需要验证代码是否满足所有验收标准**
+2. **仍然需要更新 Issue body 中的 checkbox**
+3. 如果没有需要修改的代码，创建一个说明性的评论并更新 checkbox
+4. 不需要创建 PR，但必须在评论中说明原因
