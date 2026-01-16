@@ -205,6 +205,7 @@ jobs:
       - name: Run Claude Code Action
         id: claude
         uses: anthropics/claude-code-action@v1
+        continue-on-error: true
         env:
           ANTHROPIC_BASE_URL: https://openrouter.ai/api
         with:
@@ -216,6 +217,29 @@ jobs:
           claude_args: |
             --model anthropic/claude-sonnet-4
             --max-turns 30
+
+      - name: Check Claude Execution Result
+        id: check_result
+        run: |
+          if [ "${{ steps.claude.outcome }}" == "failure" ]; then
+            echo "claude_failed=true" >> $GITHUB_OUTPUT
+            if [ -f "/home/runner/work/_temp/claude-execution-output.json" ]; then
+              ERROR_MSG=$(cat /home/runner/work/_temp/claude-execution-output.json | jq -r '.error // .message // "未知错误"' 2>/dev/null || echo "执行失败，请查看 Actions 日志")
+              echo "error_message<<EOF" >> $GITHUB_OUTPUT
+              echo "$ERROR_MSG" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+            else
+              echo "error_message=Claude 执行失败，请查看 Actions 日志获取详细信息" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "claude_failed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fail if Claude Failed
+        if: steps.check_result.outputs.claude_failed == 'true'
+        run: |
+          echo "Claude execution failed: ${{ steps.check_result.outputs.error_message }}"
+          exit 1
 
       - name: Update Issue on Success
         if: success()
@@ -306,6 +330,25 @@ jobs:
           script: |
             const issueNumber = ${{ steps.issue_info.outputs.issue_number }};
             const progressCommentId = ${{ steps.update_issue_status.outputs.progress_comment_id }};
+            const errorMessage = `${{ steps.check_result.outputs.error_message || '未知错误' }}`;
+
+            // 分析错误类型
+            let errorAnalysis = "";
+            let suggestion = "";
+
+            if (errorMessage.includes("Edit") || errorMessage.includes("old_string") || errorMessage.includes("not found")) {
+              errorAnalysis = "代码编辑失败 - 目标代码块未找到";
+              suggestion = "检查目标文件是否已更新";
+            } else if (errorMessage.includes("timeout") || errorMessage.includes("Timeout")) {
+              errorAnalysis = "执行超时";
+              suggestion = "使用 `/agent-medium` 处理";
+            } else if (errorMessage.includes("build") || errorMessage.includes("compile")) {
+              errorAnalysis = "构建失败";
+              suggestion = "查看日志定位具体错误";
+            } else {
+              errorAnalysis = "执行过程中出现错误";
+              suggestion = "查看 Actions 日志获取详细信息";
+            }
 
             // 更新进度评论为失败状态
             if (progressCommentId) {
@@ -315,22 +358,25 @@ jobs:
                   repo: context.repo.repo,
                   comment_id: progressCommentId,
                   body: [
-                    "⚡ **Simple Agent 启动**",
+                    "⚡ **Simple Agent**",
                     "",
                     "---",
                     "",
-                    "## 📊 执行进度",
+                    "## ❌ 执行失败",
                     "",
-                    "**当前阶段**: ❌ 失败",
+                    `**错误类型**: ${errorAnalysis}`,
+                    "",
+                    `**Actions 日志**: [查看详情](/${{ github.repository }}/actions/runs/${{ github.run_id }})`,
+                    "",
+                    `**建议**: ${suggestion}`,
+                    "",
+                    "<details>",
+                    "<summary>错误详情</summary>",
                     "",
                     "```",
-                    "████████░░░░░░░░░░░░ 40%",
+                    errorMessage.substring(0, 500),
                     "```",
-                    "",
-                    "**状态**: ❌ 执行过程中出现错误",
-                    "",
-                    "---",
-                    "> 💡 简单任务将直接开始开发。"
+                    "</details>"
                   ].join("\n")
                 });
               } catch (e) {
@@ -354,25 +400,5 @@ jobs:
               labels: ['❌ ai-failed', 'needs-review']
             });
 
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber,
-              body: [
-                "❌ **Simple Agent 失败**",
-                "",
-                "请查看 [Actions 日志](/${{ github.repository }}/actions/runs/${{ github.run_id }}) 了解详情。",
-                "",
-                "**可能的原因:**",
-                "- 需求描述不够清晰",
-                "- 代码生成遇到问题",
-                "- API 调用超时",
-                "",
-                "**解决方案:**",
-                "- 补充需求描述后使用 `/agent-simple` 重试",
-                "- 或使用 `/agent-medium` 让 AI 先分析再开发",
-                "",
-                "---",
-                "> 🤖 由 Vibe Simple Agent 处理"
-              ].join("\n")
-            });
+            // 不再创建额外评论，信息已在进度评论中
+            console.log(`Issue #${issueNumber} 已标记为失败，错误: ${errorAnalysis}`);

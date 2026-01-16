@@ -307,6 +307,7 @@ jobs:
       - name: Run Claude Code Action
         id: claude
         uses: anthropics/claude-code-action@v1
+        continue-on-error: true
         env:
           ANTHROPIC_BASE_URL: https://openrouter.ai/api
         with:
@@ -318,6 +319,30 @@ jobs:
           claude_args: |
             --model anthropic/claude-sonnet-4
             --max-turns 50
+
+      - name: Check Claude Execution Result
+        id: check_result
+        run: |
+          if [ "${{ steps.claude.outcome }}" == "failure" ]; then
+            echo "claude_failed=true" >> $GITHUB_OUTPUT
+            # 尝试从日志文件提取错误信息
+            if [ -f "/home/runner/work/_temp/claude-execution-output.json" ]; then
+              ERROR_MSG=$(cat /home/runner/work/_temp/claude-execution-output.json | jq -r '.error // .message // "未知错误"' 2>/dev/null || echo "执行失败，请查看 Actions 日志")
+              echo "error_message<<EOF" >> $GITHUB_OUTPUT
+              echo "$ERROR_MSG" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+            else
+              echo "error_message=Claude 执行失败，请查看 Actions 日志获取详细信息" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "claude_failed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fail if Claude Failed
+        if: steps.check_result.outputs.claude_failed == 'true'
+        run: |
+          echo "Claude execution failed: ${{ steps.check_result.outputs.error_message }}"
+          exit 1
 
       - name: Update Issue on Success
         if: success()
@@ -471,6 +496,28 @@ jobs:
             const continuationContext = '${{ github.event.inputs.continuation_context }}' || '';
             const isContinuation = continuationContext.length > 0;
             const existingCommentBody = `${{ steps.update_issue_status.outputs.existing_comment_body }}`;
+            const errorMessage = `${{ steps.check_result.outputs.error_message || '未知错误' }}`;
+
+            // 分析错误类型并给出针对性建议
+            let errorAnalysis = "";
+            let suggestion = "";
+
+            if (errorMessage.includes("Edit") || errorMessage.includes("old_string") || errorMessage.includes("not found")) {
+              errorAnalysis = "代码编辑失败 - 目标代码块未找到（可能已被修改）";
+              suggestion = "检查目标文件是否已更新，或手动完成此任务";
+            } else if (errorMessage.includes("timeout") || errorMessage.includes("Timeout")) {
+              errorAnalysis = "执行超时 - 任务过于复杂";
+              suggestion = "使用 `/agent-complex` 将任务拆分为多个子任务";
+            } else if (errorMessage.includes("permission") || errorMessage.includes("Permission")) {
+              errorAnalysis = "权限不足";
+              suggestion = "检查 GitHub Token 权限配置";
+            } else if (errorMessage.includes("build") || errorMessage.includes("compile")) {
+              errorAnalysis = "构建失败 - 代码存在语法或编译错误";
+              suggestion = "查看 Actions 日志定位具体错误";
+            } else {
+              errorAnalysis = "执行过程中出现错误";
+              suggestion = "查看 Actions 日志获取详细信息";
+            }
 
             // 构建失败状态
             const failureSection = [
@@ -482,19 +529,22 @@ jobs:
               "████████░░░░░░░░░░░░ 40%",
               "```",
               "",
-              "**状态**: ❌ 执行过程中出现错误",
+              `**错误类型**: ${errorAnalysis}`,
               "",
               `**Actions 日志**: [查看详情](/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }})`,
               "",
-              "**可能的原因:**",
-              "- 需求描述不够清晰",
-              "- 涉及的模块过多",
-              "- 技术方案需要人工确认",
+              "**建议:**",
+              `- ${suggestion}`,
+              "- 或使用 `/agent-medium` 重试",
+              "- 或使用 `/agent-complex` 让 AI 先拆分任务",
               "",
-              "**解决方案:**",
-              "- 补充需求描述后使用 `/agent-medium` 重试",
-              "- 或将任务拆分为多个简单任务",
-              "- 或使用 `/agent-complex` 让 AI 先拆分任务"
+              "<details>",
+              "<summary>错误详情</summary>",
+              "",
+              "```",
+              errorMessage.substring(0, 500),
+              "```",
+              "</details>"
             ].join("\n");
 
             // 更新进度评论为失败状态
