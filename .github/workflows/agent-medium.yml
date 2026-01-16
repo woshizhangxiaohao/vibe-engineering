@@ -245,7 +245,7 @@ jobs:
         with:
           script: |
             const issueNumber = ${{ steps.issue_info.outputs.issue_number }};
-            const progressCommentId = ${{ steps.update_issue_status.outputs.progress_comment_id }};
+            const progressCommentId = '${{ steps.update_issue_status.outputs.progress_comment_id }}' || null;
             const continuationContext = '${{ github.event.inputs.continuation_context }}' || '';
             const isContinuation = continuationContext.length > 0;
             const existingCommentBody = `${{ steps.update_issue_status.outputs.existing_comment_body }}`;
@@ -312,7 +312,7 @@ jobs:
         with:
           script: |
             const issueNumber = ${{ steps.issue_info.outputs.issue_number }};
-            const progressCommentId = ${{ steps.update_issue_status.outputs.progress_comment_id }};
+            const progressCommentId = '${{ steps.update_issue_status.outputs.progress_comment_id }}' || null;
             const continuationContext = '${{ github.event.inputs.continuation_context }}' || '';
             const isContinuation = continuationContext.length > 0;
             const existingCommentBody = `${{ steps.update_issue_status.outputs.existing_comment_body }}`;
@@ -431,7 +431,7 @@ jobs:
         with:
           script: |
             const issueNumber = ${{ steps.issue_info.outputs.issue_number }};
-            const progressCommentId = ${{ steps.update_issue_status.outputs.progress_comment_id }};
+            const progressCommentId = '${{ steps.update_issue_status.outputs.progress_comment_id }}' || null;
             const continuationContext = '${{ github.event.inputs.continuation_context }}' || '';
             const isContinuation = continuationContext.length > 0;
             const existingCommentBody = `${{ steps.update_issue_status.outputs.existing_comment_body }}`;
@@ -663,7 +663,7 @@ jobs:
         with:
           script: |
             const issueNumber = ${{ steps.issue_info.outputs.issue_number }};
-            const progressCommentId = ${{ steps.update_issue_status.outputs.progress_comment_id }};
+            const progressCommentId = '${{ steps.update_issue_status.outputs.progress_comment_id }}' || null;
             const continuationContext = '${{ github.event.inputs.continuation_context }}' || '';
             const isContinuation = continuationContext.length > 0;
             const existingCommentBody = `${{ steps.update_issue_status.outputs.existing_comment_body }}`;
