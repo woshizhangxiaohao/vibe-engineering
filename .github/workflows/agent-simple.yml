@@ -273,6 +273,17 @@ jobs:
               labels: ['✅ ai-completed']
             });
 
+            // 自动关闭 Issue 以触发依赖链
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              state: 'closed',
+              state_reason: 'completed'
+            });
+
+            console.log(`✅ Issue #${issueNumber} 已自动关闭，将触发依赖链中的下一个任务`);
+
             // 发布成功评论
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -281,7 +292,7 @@ jobs:
               body: [
                 "✅ **Simple Agent 完成**",
                 "",
-                "PR 已创建，请查看上方的进度追踪评论获取链接。",
+                "PR 已创建，Issue 已自动关闭。",
                 "",
                 "---",
                 "> 🤖 由 Vibe Simple Agent 自动处理"

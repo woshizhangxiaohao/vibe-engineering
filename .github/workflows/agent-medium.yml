@@ -424,7 +424,16 @@ jobs:
               labels: ['✅ ai-completed']
             });
 
-            // 不再创建额外评论，所有信息都在进度追踪评论中
+            // 自动关闭 Issue 以触发依赖链
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              state: 'closed',
+              state_reason: 'completed'
+            });
+
+            console.log(`✅ Issue #${issueNumber} 已自动关闭，将触发依赖链中的下一个任务`);
 
       - name: Trigger Verification
         if: success()
