@@ -195,6 +195,8 @@ jobs:
           use_oauth: false
           # 关键：直接在当前分支修复，不创建新 PR
           direct_push: true
+          # 允许所有 bots 触发，避免 "Workflow initiated by non-human actor" 错误
+          allowed_bots: '*'
           prompt: |
             你是代码修复专家。当前 PR 的 Build 失败了，需要你修复。
 

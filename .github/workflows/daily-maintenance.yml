@@ -30,6 +30,8 @@ jobs:
           github_token: ${{ github.token }}
           # track_progress is not supported for schedule events
           # track_progress: true
+          # 允许所有 bots 触发，避免 "Workflow initiated by non-human actor" 错误
+          allowed_bots: '*'
           prompt: |
             REPO: ${{ github.repository }}
 

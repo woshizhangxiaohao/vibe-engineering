@@ -874,6 +874,8 @@ jobs:
           track_progress: true
           prompt: ${{ steps.prepare.outputs.prompt }}
           base_branch: ${{ steps.feature.outputs.branch }}
+          # 允许所有 bots 触发，避免 "Workflow initiated by non-human actor" 错误
+          allowed_bots: '*'
           claude_args: |
             --model anthropic/claude-sonnet-4.5
             --max-turns 60
@@ -1077,6 +1079,8 @@ jobs:
           track_progress: true
           prompt: ${{ steps.prepare.outputs.prompt }}
           base_branch: ${{ steps.feature.outputs.branch }}
+          # 允许所有 bots 触发，避免 "Workflow initiated by non-human actor" 错误
+          allowed_bots: '*'
           claude_args: |
             --model anthropic/claude-sonnet-4.5
             --max-turns 60
