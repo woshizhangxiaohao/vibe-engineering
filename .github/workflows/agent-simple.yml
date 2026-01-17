@@ -296,13 +296,13 @@ jobs:
           # Not supported for workflow_dispatch or workflow_call events
           track_progress: ${{ github.event_name == 'issue_comment' }}
           prompt: ${{ steps.prompt.outputs.prompt }}
-          # 允许 github-actions bot 触发
+          # 允许所有 bots 触发
           # 这对于以下自动化场景是必需的：
           # - vibe-router 自动路由任务
           # - vibe-continuous 自动迭代和验收
           # - dependency-chain 触发依赖任务
           # 否则会报错：Workflow initiated by non-human actor
-          allowed_bots: 'github-actions'
+          allowed_bots: '*'
           claude_args: |
             --model anthropic/claude-sonnet-4
             --max-turns 30
