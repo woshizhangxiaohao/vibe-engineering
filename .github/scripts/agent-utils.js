@@ -161,7 +161,7 @@ async function checkDuplicateRun(github, context, {
     });
 
     const labels = issue.labels.map(l => l.name);
-    if (labels.includes('🤖 ai-processing')) {
+    if (labels.includes('ai:processing')) {
       console.log(`⚠️ Issue #${issueNumber} 已在处理中`);
       return true;
     }

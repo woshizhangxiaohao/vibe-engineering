@@ -118,7 +118,7 @@ jobs:
             });
 
             const labels = issue.labels.map(l => l.name);
-            if (labels.includes('🤖 ai-processing')) {
+            if (labels.includes('ai:processing')) {
               console.log(`⚠️ Issue #${issueNumber} 已在处理中，跳过`);
               core.setOutput('is_duplicate', 'true');
               return;
@@ -154,7 +154,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              labels: ['🤖 ai-processing', 'agent:medium']
+              labels: ['ai:processing']
             });
 
             const continuationContext = '${{ github.event.inputs.continuation_context }}' || '';
@@ -580,7 +580,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issueNumber,
-                  name: '🤖 ai-processing'
+                  name: 'ai:processing'
                 });
               } catch (e) {}
 
@@ -589,7 +589,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issueNumber,
-                  name: 'agent:medium'
+                  name: ''
                 });
               } catch (e) {}
 
@@ -597,7 +597,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                labels: ['⚠️ no-pr', 'needs-review']
+                labels: ['needs-review', 'needs-review']
               });
 
               // 不关闭 Issue，直接返回
@@ -718,7 +718,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issueNumber,
-                  name: '🤖 ai-processing'
+                  name: 'ai:processing'
                 });
               } catch (e) {}
 
@@ -727,7 +727,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issueNumber,
-                  name: 'agent:medium'
+                  name: ''
                 });
               } catch (e) {}
 
@@ -735,7 +735,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                labels: ['⚠️ ci-failed', 'needs-review']
+                labels: ['needs-review', 'needs-review']
               });
 
               return;
@@ -806,7 +806,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issueNumber,
-                  name: '🤖 ai-processing'
+                  name: 'ai:processing'
                 });
               } catch (e) {}
 
@@ -815,7 +815,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issueNumber,
-                  name: 'agent:medium'
+                  name: ''
                 });
               } catch (e) {}
 
@@ -823,7 +823,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                labels: ['⚠️ ci-pending', 'needs-review']
+                labels: ['needs-review', 'needs-review']
               });
 
               return;
@@ -894,7 +894,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                name: '🤖 ai-processing'
+                name: 'ai:processing'
               });
             } catch (e) {}
 
@@ -903,7 +903,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                name: 'agent:medium'
+                name: ''
               });
             } catch (e) {}
 
@@ -911,7 +911,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              labels: ['✅ ai-completed']
+              labels: ['ai:completed']
             });
 
             // 只有找到 PR 才关闭 Issue
@@ -1077,7 +1077,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                name: '🤖 ai-processing'
+                name: 'ai:processing'
               });
             } catch (e) {}
 
@@ -1086,7 +1086,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                name: 'agent:medium'
+                name: ''
               });
             } catch (e) {}
 
@@ -1094,7 +1094,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              labels: ['❌ ai-failed', 'needs-review']
+              labels: ['ai:failed', 'needs-review']
             });
 
             // 不再创建额外评论，所有信息都在进度追踪评论中

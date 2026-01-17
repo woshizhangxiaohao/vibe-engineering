@@ -16,7 +16,7 @@ module.exports = async ({ github, context, core, promptContent }) => {
   console.log("=".repeat(60));
   console.log(`Issue #${issue.number}: ${title}`);
 
-  // 从配置文件读取跳过规则
+  // 从配置文件读取配置（如果存在）
   let config;
   try {
     const configPath = '.github/config/workflow-config.json';
@@ -25,36 +25,8 @@ module.exports = async ({ github, context, core, promptContent }) => {
   } catch (error) {
     console.warn(`⚠️ 无法读取配置文件，使用默认配置: ${error.message}`);
     config = {
-      skip_patterns: {
-        title_patterns: ["^\\[PRD\\]", "^\\[Auto\\]", "^sub-issue", "workflow.*fail"],
-        skip_labels: ["skip-vibe", "manual", "question", "discussion"]
-      },
       agents: { router_model: "google/gemini-2.0-flash-001" }
     };
-  }
-
-  // 跳过特殊类型的 Issue
-  const skipPatterns = config.skip_patterns.title_patterns.map(p => new RegExp(p, 'i'));
-
-  for (const pattern of skipPatterns) {
-    if (pattern.test(title)) {
-      console.log(`⏭️ 跳过: 匹配模式 ${pattern}`);
-      core.setOutput('complexity', 'skip');
-      core.setOutput('reasoning', '特殊类型 Issue，不自动处理');
-      return { complexity: 'skip', reasoning: '特殊类型 Issue，不自动处理' };
-    }
-  }
-
-  // 检查是否有跳过标签
-  const skipLabels = config.skip_patterns.skip_labels;
-  const issueLabels = issue.labels?.map(l => l.name.toLowerCase()) || [];
-  for (const skipLabel of skipLabels) {
-    if (issueLabels.includes(skipLabel)) {
-      console.log(`⏭️ 跳过: 有 ${skipLabel} 标签`);
-      core.setOutput('complexity', 'skip');
-      core.setOutput('reasoning', `有 ${skipLabel} 标签`);
-      return { complexity: 'skip', reasoning: `有 ${skipLabel} 标签` };
-    }
   }
 
   // 使用从模板加载的 prompt
@@ -173,6 +145,18 @@ module.exports = async ({ github, context, core, promptContent }) => {
     if (areas.includes('frontend')) labels.push(config.labels?.scope?.frontend || 'frontend');
     if (areas.includes('backend')) labels.push(config.labels?.scope?.backend || 'backend');
     if (areas.includes('database')) labels.push(config.labels?.scope?.database || 'database');
+
+    // 移除 needs-route 标签（已完成路由）
+    try {
+      await github.rest.issues.removeLabel({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        issue_number: issue.number,
+        name: 'needs-route'
+      });
+    } catch (e) {
+      // 标签可能不存在，忽略
+    }
 
     await github.rest.issues.addLabels({
       owner: context.repo.owner,

@@ -114,7 +114,7 @@ jobs:
             });
 
             const labels = issue.labels.map(l => l.name);
-            if (labels.includes('🤖 ai-processing')) {
+            if (labels.includes('ai:processing')) {
               console.log(`⚠️ Issue #${issueNumber} 已在处理中，跳过`);
               core.setOutput('is_duplicate', 'true');
               return;
@@ -150,7 +150,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              labels: ['🤖 ai-processing', 'agent:simple']
+              labels: ['ai:processing']
             });
             
             // 创建进度追踪评论
@@ -458,22 +458,13 @@ jobs:
                 }
               }
 
-              // 移除 processing 标签，添加警告标签
+              // 移除 processing 标签，添加 needs-review 标签
               try {
                 await github.rest.issues.removeLabel({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issueNumber,
-                  name: '🤖 ai-processing'
-                });
-              } catch (e) {}
-
-              try {
-                await github.rest.issues.removeLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issueNumber,
-                  name: 'agent:simple'
+                  name: 'ai:processing'
                 });
               } catch (e) {}
 
@@ -481,7 +472,15 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                labels: ['⚠️ no-pr', 'needs-review']
+                labels: ['needs-review']
+              });
+
+              // 添加说明评论
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: '⚠️ **未找到 PR**: Agent 执行完成但未创建 Pull Request，请检查执行日志。'
               });
 
               // 不关闭 Issue，直接返回
@@ -596,16 +595,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issueNumber,
-                  name: '🤖 ai-processing'
-                });
-              } catch (e) {}
-
-              try {
-                await github.rest.issues.removeLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issueNumber,
-                  name: 'agent:simple'
+                  name: 'ai:processing'
                 });
               } catch (e) {}
 
@@ -613,7 +603,15 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                labels: ['⚠️ ci-failed', 'needs-review']
+                labels: ['needs-review']
+              });
+
+              // 添加说明评论
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `⚠️ **CI 检查失败**: PR 的 CI 检查失败，自动修复已触发。\n\n失败的检查：\n${summarizeChecks(failedChecks)}`
               });
 
               return;
@@ -680,16 +678,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issueNumber,
-                  name: '🤖 ai-processing'
-                });
-              } catch (e) {}
-
-              try {
-                await github.rest.issues.removeLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issueNumber,
-                  name: 'agent:simple'
+                  name: 'ai:processing'
                 });
               } catch (e) {}
 
@@ -697,7 +686,15 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                labels: ['⚠️ ci-pending', 'needs-review']
+                labels: ['needs-review']
+              });
+
+              // 添加说明评论
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `⏳ **CI 检查进行中**: PR 的 CI 检查仍在运行中。\n\n待完成的检查：\n${summarizeChecks(pendingChecks)}`
               });
 
               return;
@@ -750,16 +747,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                name: '🤖 ai-processing'
-              });
-            } catch (e) {}
-
-            try {
-              await github.rest.issues.removeLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                name: 'agent:simple'
+                name: 'ai:processing'
               });
             } catch (e) {}
 
@@ -767,7 +755,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              labels: ['✅ ai-completed']
+              labels: ['ai:completed']
             });
 
             // 只有找到 PR 才关闭 Issue
@@ -906,7 +894,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                name: '🤖 ai-processing'
+                name: 'ai:processing'
               });
             } catch (e) {}
 
@@ -914,7 +902,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              labels: ['❌ ai-failed', 'needs-review']
+              labels: ['ai:failed', 'needs-review']
             });
 
             // 不再创建额外评论，信息已在进度评论中

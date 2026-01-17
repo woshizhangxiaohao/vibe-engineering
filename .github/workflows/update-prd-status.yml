@@ -67,7 +67,7 @@ jobs:
 
                   const labels = issue.labels.map(l => typeof l === 'string' ? l : l.name);
                   const isClosed = issue.state === 'closed';
-                  const hasAiCompleted = labels.includes('✅ ai-completed');
+                  const hasAiCompleted = labels.includes('ai:completed');
                   const hasDeployed = labels.includes('✅ deployed');
 
                   return {

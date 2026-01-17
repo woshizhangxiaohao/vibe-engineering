@@ -884,14 +884,14 @@ jobs:
         with:
           script: |
             const labels = '${{ job.status }}' === 'success'
-              ? ['✅ ai-completed']
-              : ['❌ ai-failed'];
+              ? ['ai:completed']
+              : ['ai:failed'];
 
             await github.rest.issues.removeLabel({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              name: '🤖 ai-processing'
+              name: 'ai:processing'
             }).catch(() => {});
 
             await github.rest.issues.addLabels({
@@ -1087,14 +1087,14 @@ jobs:
         with:
           script: |
             const labels = '${{ job.status }}' === 'success'
-              ? ['✅ ai-completed']
-              : ['❌ ai-failed'];
+              ? ['ai:completed']
+              : ['ai:failed'];
 
             await github.rest.issues.removeLabel({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              name: '🤖 ai-processing'
+              name: 'ai:processing'
             }).catch(() => {});
 
             await github.rest.issues.addLabels({

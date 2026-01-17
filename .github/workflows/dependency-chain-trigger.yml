@@ -177,11 +177,11 @@ jobs:
 
               // 检查是否已经在处理中
               const labels = depIssue.labels.map(l => l.name);
-              if (labels.includes('🤖 ai-processing')) {
+              if (labels.includes('ai:processing')) {
                 console.log(`   ⏭️ 已在处理中，跳过`);
                 continue;
               }
-              if (labels.includes('✅ ai-completed')) {
+              if (labels.includes('ai:completed')) {
                 console.log(`   ⏭️ 已完成，跳过`);
                 continue;
               }
