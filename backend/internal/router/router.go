@@ -56,6 +56,9 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 	youtubeService := services.NewYouTubeService(cfg.OpenRouterAPIKey, cfg.GeminiModel, log)
 	videoHandler := handlers.NewVideoHandler(videoRepo, youtubeService, log)
 
+	// Transcript service (yt-dlp based subtitle extraction)
+	transcriptService := services.NewTranscriptService(log)
+
 	// Translation service and handlers
 	translationRepo := repository.NewTranslationRepository(db.DB)
 	translationService := services.NewTranslationService(cfg.OpenRouterAPIKey, cfg.GeminiModel, log)
@@ -72,8 +75,6 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 	youtubeAPIService := services.NewYouTubeAPIService(cfg.YouTubeAPIKey, cache, oauthService, log)
 	youtubeAPIHandler := handlers.NewYouTubeAPIHandler(youtubeAPIService, youtubeService, oauthService, log)
 
-	// Transcript service (yt-dlp based subtitle extraction)
-	transcriptService := services.NewTranscriptService(log)
 	transcriptHandler := handlers.NewTranscriptHandler(transcriptService, log)
 
 	// Chat handlers
