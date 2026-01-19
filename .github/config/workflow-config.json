@@ -1,0 +1,69 @@
+{
+  "version": "1.1.0",
+  "prd": {
+    "issue_number": 176,
+    "sub_issues": [
+      {
+        "number": 268,
+        "priority": "P1",
+        "name": "新增中英对照功能实现",
+        "frontend": true,
+        "backend": true
+      }
+    ]
+  },
+  "router": {
+    "complexity_thresholds": {
+      "simple_max_chars": 500,
+      "medium_max_chars": 2000
+    }
+  },
+  "monitor": {
+    "stale_threshold_hours": 4,
+    "retry_limit": 3
+  },
+  "agents": {
+    "default_model": "anthropic/claude-sonnet-4",
+    "ui_model": "google/gemini-2.0-flash-001",
+    "router_model": "google/gemini-2.0-flash-001",
+    "max_turns": {
+      "simple": 30,
+      "medium": 50,
+      "complex": 60
+    }
+  },
+  "paths": {
+    "spec_dir": "docs/specs",
+    "prompts_dir": ".github/prompts"
+  },
+  "labels": {
+    "status": {
+      "tech_spec_ready": "tech-spec-ready",
+      "ui_spec_ready": "ui-spec-ready",
+      "ai_completed": "ai:completed",
+      "deployed": "✅ deployed"
+    },
+    "complexity": {
+      "simple": "complexity:simple",
+      "medium": "complexity:medium",
+      "complex": "complexity:complex"
+    },
+    "scope": {
+      "frontend": "agent:frontend",
+      "backend": "agent:backend",
+      "fullstack": "agent:fullstack"
+    },
+    "ui_spec": "ui-spec-ready"
+  },
+  "skip_patterns": {
+    "title_prefixes": ["[SKIP]", "[WIP]", "[DRAFT]"],
+    "labels": ["skip-automation", "manual-only"]
+  },
+  "api": {
+    "openrouter_base_url": "https://openrouter.ai/api/v1"
+  },
+  "git": {
+    "bot_name": "vibe-agent[bot]",
+    "bot_email": "vibe-agent@github-actions.bot"
+  }
+}
