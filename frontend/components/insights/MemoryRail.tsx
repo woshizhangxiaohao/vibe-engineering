@@ -12,9 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InsightItem } from "./InsightItem";
 import { NewInsightDialog } from "./NewInsightDialog";
-import { TranslationResultDialog } from "./TranslationResultDialog";
 import { insightApi } from "@/lib/api/endpoints";
-import type { GroupedInsights, TranslateResponse } from "@/lib/api/types";
+import type { GroupedInsights } from "@/lib/api/types";
 import { Plus, Search, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
@@ -41,18 +40,11 @@ export function MemoryRail({
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showNewDialog, setShowNewDialog] = useState(false);
-  const [showTranslationResult, setShowTranslationResult] = useState(false);
-  const [translationResult, setTranslationResult] = useState<TranslateResponse | null>(null);
   const [openSections, setOpenSections] = useState({
     today: true,
     yesterday: false,
     previous: false,
   });
-
-  const handleTranslationComplete = (result: TranslateResponse) => {
-    setTranslationResult(result);
-    setShowTranslationResult(true);
-  };
 
   const fetchInsights = async () => {
     try {
@@ -233,14 +225,6 @@ export function MemoryRail({
         open={showNewDialog}
         onOpenChange={setShowNewDialog}
         onSuccess={fetchInsights}
-        onTranslationComplete={handleTranslationComplete}
-      />
-
-      {/* Translation Result Dialog */}
-      <TranslationResultDialog
-        open={showTranslationResult}
-        onOpenChange={setShowTranslationResult}
-        result={translationResult}
       />
     </div>
   );

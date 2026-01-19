@@ -14,9 +14,10 @@ import (
 
 // InsightProcessor handles async processing of insights.
 type InsightProcessor struct {
-	repo           *repository.InsightRepository
-	youtubeService *YouTubeService
-	log            *zap.Logger
+	repo               *repository.InsightRepository
+	youtubeService     *YouTubeService
+	translationService *TranslationService
+	log                *zap.Logger
 }
 
 // NewInsightProcessor creates a new InsightProcessor.
@@ -25,11 +26,17 @@ func NewInsightProcessor(
 	youtubeService *YouTubeService,
 	log *zap.Logger,
 ) *InsightProcessor {
+	// Note: translationService will be nil for now, needs to be injected
 	return &InsightProcessor{
 		repo:           repo,
 		youtubeService: youtubeService,
 		log:            log,
 	}
+}
+
+// SetTranslationService sets the translation service (for dependency injection).
+func (p *InsightProcessor) SetTranslationService(svc *TranslationService) {
+	p.translationService = svc
 }
 
 // ProcessInsightAsync starts async processing of an insight.
@@ -144,7 +151,7 @@ func (p *InsightProcessor) processYouTubeInsight(ctx context.Context, insight *m
 		// Transcripts are optional, continue processing
 	} else {
 		// Convert transcripts to the format expected by Insight model
-		transcripts, err := p.convertTranscriptsToInsightFormat(transcriptResponse)
+		transcripts, err := p.convertTranscriptsToInsightFormat(transcriptResponse, insight.TargetLang)
 		if err != nil {
 			p.log.Warn("Failed to convert transcripts",
 				zap.String("video_id", videoID),
@@ -178,7 +185,8 @@ func (p *InsightProcessor) processYouTubeInsight(ctx context.Context, insight *m
 }
 
 // convertTranscriptsToInsightFormat converts YouTube transcripts to the Insight model format.
-func (p *InsightProcessor) convertTranscriptsToInsightFormat(response *models.YouTubeTranscriptResponse) ([]byte, error) {
+// It also translates the transcripts to the target language if translation service is available.
+func (p *InsightProcessor) convertTranscriptsToInsightFormat(response *models.YouTubeTranscriptResponse, targetLang string) ([]byte, error) {
 	// Convert to TranscriptItem array format expected by the Insight model
 	var transcriptItems []models.TranscriptItem
 
@@ -221,6 +229,45 @@ func (p *InsightProcessor) convertTranscriptsToInsightFormat(response *models.Yo
 
 	if len(transcriptItems) == 0 {
 		return nil, fmt.Errorf("no transcript segments found")
+	}
+
+	// Translate transcripts if translation service is available and target language is set
+	if p.translationService != nil && targetLang != "" {
+		p.log.Info("Translating transcripts",
+			zap.Int("count", len(transcriptItems)),
+			zap.String("target_lang", targetLang),
+		)
+
+		// Extract texts for batch translation
+		texts := make([]string, len(transcriptItems))
+		for i, item := range transcriptItems {
+			texts[i] = item.Text
+		}
+
+		// Detect source language from first segment
+		var sourceLang string
+		if len(texts) > 0 {
+			detected, err := p.translationService.DetectLanguage(context.Background(), texts[0])
+			if err == nil {
+				sourceLang = detected
+			}
+		}
+
+		// Batch translate
+		translations, err := p.translationService.TranslateBatch(context.Background(), texts, sourceLang, targetLang)
+		if err != nil {
+			p.log.Warn("Failed to translate transcripts, continuing without translation",
+				zap.Error(err),
+			)
+		} else {
+			// Add translations to transcript items
+			for i, translation := range translations {
+				if i < len(transcriptItems) {
+					transcriptItems[i].TranslatedText = translation
+				}
+			}
+			p.log.Info("Successfully translated transcripts")
+		}
 	}
 
 	return json.Marshal(transcriptItems)

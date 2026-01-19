@@ -105,7 +105,8 @@ export interface CreateInsightResponse {
 export interface TranscriptItem {
   timestamp: string; // e.g., "05:12"
   seconds: number; // time in seconds
-  text: string; // transcript text
+  text: string; // original transcript text
+  translated_text?: string; // translated text (optional)
 }
 
 /**

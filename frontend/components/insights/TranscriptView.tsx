@@ -89,6 +89,9 @@ function TranscriptLine({
   displayMode,
   onTimestampClick,
 }: TranscriptLineProps) {
+  // Determine which text to display based on mode
+  const hasTranslation = item.translated_text && item.translated_text.trim() !== "";
+
   return (
     <div className="flex gap-3 group">
       {/* Timestamp Button */}
@@ -101,12 +104,18 @@ function TranscriptLine({
 
       {/* Text Content */}
       <div className="flex-1 text-sm text-muted-foreground leading-relaxed">
-        {displayMode === "zh" && <p>{item.text}</p>}
+        {displayMode === "zh" && (
+          <p>{hasTranslation ? item.translated_text : item.text}</p>
+        )}
         {displayMode === "en" && <p>{item.text}</p>}
         {displayMode === "bilingual" && (
-          <div className="space-y-1">
-            <p>{item.text}</p>
-            <p className="text-xs text-muted-foreground/70">{item.text}</p>
+          <div className="space-y-1.5">
+            <p className="text-foreground">{item.text}</p>
+            {hasTranslation && (
+              <p className="text-sm text-primary/90 font-medium">
+                {item.translated_text}
+              </p>
+            )}
           </div>
         )}
       </div>

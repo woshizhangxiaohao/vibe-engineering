@@ -56,9 +56,15 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 	youtubeService := services.NewYouTubeService(cfg.OpenRouterAPIKey, cfg.GeminiModel, log)
 	videoHandler := handlers.NewVideoHandler(videoRepo, youtubeService, log)
 
+	// Translation service and handlers
+	translationRepo := repository.NewTranslationRepository(db.DB)
+	translationService := services.NewTranslationService(cfg.OpenRouterAPIKey, cfg.GeminiModel, log)
+	translationHandler := handlers.NewTranslationHandler(translationRepo, translationService, transcriptService, log)
+
 	// InsightFlow handlers
 	insightRepo := repository.NewInsightRepository(db.DB)
 	insightProcessor := services.NewInsightProcessor(insightRepo, youtubeService, log)
+	insightProcessor.SetTranslationService(translationService) // Inject translation service
 	insightHandler := handlers.NewInsightHandler(insightRepo, insightProcessor, log)
 
 	// YouTube Data API v3 handlers (OAuth + API endpoints)
@@ -69,11 +75,6 @@ func New(cfg *config.Config, db *database.PostgresDB, cache *cache.RedisCache, l
 	// Transcript service (yt-dlp based subtitle extraction)
 	transcriptService := services.NewTranscriptService(log)
 	transcriptHandler := handlers.NewTranscriptHandler(transcriptService, log)
-
-	// Translation service and handlers
-	translationRepo := repository.NewTranslationRepository(db.DB)
-	translationService := services.NewTranslationService(cfg.OpenRouterAPIKey, cfg.GeminiModel, log)
-	translationHandler := handlers.NewTranslationHandler(translationRepo, translationService, transcriptService, log)
 
 	// Chat handlers
 	chatRepo := repository.NewChatRepository(db.DB)

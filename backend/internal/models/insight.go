@@ -90,9 +90,10 @@ type ShareConfigData struct {
 
 // TranscriptItem represents a single transcript segment with timestamp.
 type TranscriptItem struct {
-	Timestamp string `json:"timestamp"` // e.g., "05:12"
-	Seconds   int    `json:"seconds"`   // time in seconds
-	Text      string `json:"text"`      // transcript text
+	Timestamp      string `json:"timestamp"`       // e.g., "05:12"
+	Seconds        int    `json:"seconds"`         // time in seconds
+	Text           string `json:"text"`            // original transcript text
+	TranslatedText string `json:"translated_text,omitempty"` // translated text (if available)
 }
 
 // Highlight represents a user-created highlight/annotation on content.
