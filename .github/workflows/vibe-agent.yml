@@ -180,7 +180,7 @@ jobs:
                 'Content-Type': 'application/json'
               },
               body: JSON.stringify({
-                model: 'google/gemini-2.0-flash-001',
+                model: 'google/gemini-3.0-flash',
                 messages: [{ role: 'user', content: pmPrompt }],
                 temperature: 0.3
               })
@@ -241,7 +241,7 @@ jobs:
                 'Content-Type': 'application/json'
               },
               body: JSON.stringify({
-                model: 'google/gemini-2.0-flash-001',
+                model: 'google/gemini-3.0-flash',
                 messages: [{ role: 'user', content: uiPrompt }],
                 temperature: 0.5
               })
@@ -451,7 +451,7 @@ jobs:
                 'Content-Type': 'application/json'
               },
               body: JSON.stringify({
-                model: 'google/gemini-2.0-flash-001',
+                model: 'google/gemini-3.0-flash',
                 messages: [{ role: 'user', content: pmPrompt }],
                 temperature: 0.3
               })
@@ -780,7 +780,7 @@ jobs:
                 'Content-Type': 'application/json'
               },
               body: JSON.stringify({
-                model: 'google/gemini-2.0-flash-001',
+                model: 'google/gemini-3.0-flash',
                 messages: [{ role: 'user', content: contractPrompt }],
                 temperature: 0.3
               })
